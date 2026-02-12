@@ -1,19 +1,12 @@
 import streamlit as st
 import pandas as pd
-from streamlit_gsheets import GSheetsConnection
-import urllib.parse
 
 # [1. 시스템 설정]
 st.set_page_config(
-    page_title="범공인 Pro (v24.16)",
+    page_title="범공인 Pro (v24.16 Final)",
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1bmTnLu-vMvlAGRSsCI4a8lk00U38covWl5Wfn9JZYVU/edit"
-
-# 💡 [설정] 6개 시트 명칭
-SHEET_NAMES = ["임대", "임대(종료)", "매매", "매매(종료)", "임대브리핑", "매매브리핑"]
 
 # [2. 스타일 설정]
 st.markdown("""
@@ -28,27 +21,37 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# [3. 데이터 로드 엔진 (헤더 유연화 및 정직한 로드)]
+# 💡 [핵심] 시트 GID 매핑 (한글 이름 문제 원천 차단)
+SHEET_BASE_URL = "https://docs.google.com/spreadsheets/d/1bmTnLu-vMvlAGRSsCI4a8lk00U38covWl5Wfn9JZYVU"
+SHEET_GIDS = {
+    "임대": "2063575964", 
+    "임대(종료)": "791354475", 
+    "매매": "1833762712", 
+    "매매(종료)": "1597438389",
+    "임대브리핑": "982780192", 
+    "매매브리핑": "807085458"
+}
+SHEET_NAMES = list(SHEET_GIDS.keys())
+
+# [3. 데이터 로드 엔진 (GID 기반 CSV 추출)]
 @st.cache_data(ttl=600) 
 def load_data(sheet_name):
-    conn = st.connection("gsheets", type=GSheetsConnection)
-    df = None
+    gid = SHEET_GIDS.get(sheet_name)
+    if not gid: return None
     
-    # [1단계] 시트 로드 (인코딩 방어)
+    # CSV Export URL 생성
+    csv_url = f"{SHEET_BASE_URL}/export?format=csv&gid={gid}"
+    
     try:
-        df = conn.read(spreadsheet=SHEET_URL, worksheet=sheet_name, ttl=0)
-    except Exception:
-        try:
-            encoded_name = urllib.parse.quote(sheet_name)
-            df = conn.read(spreadsheet=SHEET_URL, worksheet=encoded_name, ttl=0)
-        except Exception:
-            return None # 로드 실패 시 정직하게 None 반환
+        # pandas로 직접 로드 (헤더 자동 인식)
+        df = pd.read_csv(csv_url)
+    except Exception as e:
+        return None
 
-    # [2단계] 헤더 강력 정제 (공백 완전 제거)
+    # [헤더 정제] 공백 제거
     df.columns = df.columns.str.replace(' ', '').str.strip()
     
-    # [3단계] 유연한 다중 컬럼 매핑 (Synonym Mapping)
-    # 사장님이 어떤 단어를 쓰든 표준명으로 통합
+    # [헤더 매핑] 다중 별칭을 표준명으로 통합
     synonym_map = {
         "보증금": ["보증금(만원)", "기보증금(만원)", "기보증금", "보증금"],
         "월차임": ["월차임(만원)", "기월세(만원)", "월세(만원)", "월세", "기월세"],
@@ -66,14 +69,15 @@ def load_data(sheet_name):
         "건물명": ["건물명", "빌딩명"]
     }
 
-    # 매핑 적용
     for standard, aliases in synonym_map.items():
         for alias in aliases:
-            if alias in df.columns:
-                df.rename(columns={alias: standard}, inplace=True)
+            # 공백 제거된 버전도 확인
+            clean_alias = alias.replace(' ', '')
+            if clean_alias in df.columns:
+                df.rename(columns={clean_alias: standard}, inplace=True)
                 break
 
-    # [4단계] 숫자형 변환 (존재하는 컬럼만 안전하게)
+    # [숫자형 변환] 존재하는 컬럼만 안전하게 변환
     numeric_candidates = [
         "보증금", "월차임", "권리금", "관리비", "면적", "층", 
         "매매가", "수익률", "대지면적", "연면적"
@@ -83,7 +87,7 @@ def load_data(sheet_name):
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
     
-    df = df.fillna("")
+    df = df.fillna("") # 나머지 결측치는 빈 문자열
 
     # '선택' 컬럼 초기화
     if '선택' in df.columns: df = df.drop(columns=['선택'])
@@ -108,6 +112,7 @@ with st.sidebar:
         
     selected_sheet = st.selectbox("데이터 시트", SHEET_NAMES, index=curr_idx)
     
+    # 시트 변경 감지
     if selected_sheet != st.session_state.current_sheet:
         st.session_state.current_sheet = selected_sheet
         st.cache_data.clear()
@@ -126,7 +131,7 @@ with st.sidebar:
 df_main = load_data(st.session_state.current_sheet)
 
 if df_main is None:
-    st.error(f"🚨 '{st.session_state.current_sheet}' 시트를 찾을 수 없습니다. 탭 이름을 확인해주세요.")
+    st.error(f"🚨 '{st.session_state.current_sheet}' 데이터를 불러오는데 실패했습니다. 인터넷 연결이나 GID를 확인하세요.")
     st.stop()
 
 # 모드 판단
@@ -159,7 +164,6 @@ with st.expander("🔍 정밀 검색 및 제어판 (열기/닫기)", expanded=Tr
         unique_gu += sorted(df_main['지역_구'].astype(str).unique().tolist())
     
     with c3: 
-        # 이전 시트의 값이 현재 시트에 없으면 '전체'로 리셋
         current_gu_val = sess('selected_gu', '전체')
         if current_gu_val not in unique_gu:
             st.session_state.selected_gu = "전체"
@@ -213,11 +217,10 @@ with st.expander("🔍 정밀 검색 및 제어판 (열기/닫기)", expanded=Tr
             if max_land is not None:
                 c_a.number_input("대지 최소", step=1.0, key='min_land', value=sess('min_land', 0.0))
             else: c_a.caption("-")
-            if max_total is not None:
-                c_b.number_input("대지 최대", max_value=1000000.0, step=1.0, key='max_land', value=sess('max_land', max_land)) # Max 입력창 추가
+            if max_land is not None: # 최대값 추가
+                c_b.number_input("대지 최대", max_value=1000000.0, step=1.0, key='max_land', value=sess('max_land', max_land))
             else: c_b.caption("-")
             
-            # 공간 부족 시 아래로 확장
             st.caption("--- 연면적 ---")
             c_c, c_d = st.columns(2)
             if max_total is not None:
@@ -235,10 +238,14 @@ with st.expander("🔍 정밀 검색 및 제어판 (열기/닫기)", expanded=Tr
             c_a, c_b = st.columns(2)
             if max_dep is not None:
                 c_a.number_input("보증금 최소", step=500.0, key='min_dep', value=sess('min_dep', 0.0))
+                c_b.number_input("보증금 최대", max_value=LIMIT_HUGE, step=500.0, key='max_dep', value=sess('max_dep', max_dep)) # Max 추가
             else: c_a.caption("보증금X")
+                
+            c_c, c_d = st.columns(2) # 월세 줄바꿈
             if max_rent is not None:
-                c_b.number_input("월세 최소", step=10.0, key='min_rent', value=sess('min_rent', 0.0))
-            else: c_b.caption("월세X")
+                c_c.number_input("월세 최소", step=10.0, key='min_rent', value=sess('min_rent', 0.0))
+                c_d.number_input("월세 최대", max_value=1000000.0, step=10.0, key='max_rent', value=sess('max_rent', max_rent)) # Max 추가
+            else: c_c.caption("월세X")
 
         with r2:
             st.markdown("##### 🔑 권리금/관리비")
@@ -249,10 +256,14 @@ with st.expander("🔍 정밀 검색 및 제어판 (열기/닫기)", expanded=Tr
             c_a, c_b = st.columns(2)
             if max_kwon is not None:
                 c_a.number_input("권리금 최소", step=100.0, key='min_kwon', disabled=is_no_kwon, value=sess('min_kwon', 0.0))
+                c_b.number_input("권리금 최대", max_value=LIMIT_HUGE, step=100.0, key='max_kwon', disabled=is_no_kwon, value=sess('max_kwon', max_kwon)) # Max
             else: c_a.caption("권리금X")
+            
+            c_c, c_d = st.columns(2)
             if max_man is not None:
-                c_b.number_input("관리비 최소", step=5.0, key='min_man', value=sess('min_man', 0.0))
-            else: c_b.caption("관리비X")
+                c_c.number_input("관리비 최소", step=5.0, key='min_man', value=sess('min_man', 0.0))
+                c_d.number_input("관리비 최대", max_value=1000000.0, step=5.0, key='max_man', value=sess('max_man', max_man)) # Max
+            else: c_c.caption("관리비X")
 
         with r3:
             st.markdown("##### 📐 면적 (평)")
@@ -290,18 +301,18 @@ if is_sale_mode:
         df_filtered = df_filtered[(df_filtered['연면적'] >= st.session_state.min_total) & (df_filtered['연면적'] <= st.session_state.max_total)]
 else:
     if '보증금' in df_filtered.columns and 'min_dep' in st.session_state:
-        df_filtered = df_filtered[(df_filtered['보증금'] >= st.session_state.min_dep)] # 임대는 보통 최소값 검색이 중요
+        df_filtered = df_filtered[(df_filtered['보증금'] >= st.session_state.min_dep) & (df_filtered['보증금'] <= st.session_state.max_dep)]
     if '월차임' in df_filtered.columns and 'min_rent' in st.session_state:
-        df_filtered = df_filtered[(df_filtered['월차임'] >= st.session_state.min_rent)]
+        df_filtered = df_filtered[(df_filtered['월차임'] >= st.session_state.min_rent) & (df_filtered['월차임'] <= st.session_state.max_rent)]
     if '면적' in df_filtered.columns and 'min_area' in st.session_state:
         df_filtered = df_filtered[(df_filtered['면적'] >= st.session_state.min_area) & (df_filtered['면적'] <= st.session_state.max_area)]
     if '관리비' in df_filtered.columns and 'min_man' in st.session_state:
-        df_filtered = df_filtered[(df_filtered['관리비'] >= st.session_state.min_man)]
+        df_filtered = df_filtered[(df_filtered['관리비'] >= st.session_state.min_man) & (df_filtered['관리비'] <= st.session_state.max_man)]
     if '권리금' in df_filtered.columns and 'min_kwon' in st.session_state:
         if st.session_state.is_no_kwon:
             df_filtered = df_filtered[df_filtered['권리금'] == 0]
         else:
-            df_filtered = df_filtered[(df_filtered['권리금'] >= st.session_state.min_kwon)]
+            df_filtered = df_filtered[(df_filtered['권리금'] >= st.session_state.min_kwon) & (df_filtered['권리금'] <= st.session_state.max_kwon)]
 
 # ---------------------------------------------------------
 # [핵심] 슈퍼 옴니 서치
@@ -324,7 +335,7 @@ else:
 disabled_cols = [c for c in df_filtered.columns if c != '선택']
 editor_key = f"editor_{st.session_state.current_sheet}"
 
-# 동적 컬럼 포맷 설정
+# 동적 컬럼 포맷
 col_cfg = {"선택": st.column_config.CheckboxColumn(width="small")}
 if "매매가" in df_filtered.columns: col_cfg["매매가"] = st.column_config.NumberColumn("매매가(만)", format="%d")
 if "보증금" in df_filtered.columns: col_cfg["보증금"] = st.column_config.NumberColumn("보증금(만)", format="%d")
@@ -336,6 +347,7 @@ if "연면적" in df_filtered.columns: col_cfg["연면적"] = st.column_config.N
 if "수익률" in df_filtered.columns: col_cfg["수익률"] = st.column_config.NumberColumn("수익률", format="%.2f%%")
 if "내용" in df_filtered.columns: col_cfg["내용"] = st.column_config.TextColumn("특징", width="large")
 
+# 
 st.data_editor(
     df_filtered,
     disabled=disabled_cols,
