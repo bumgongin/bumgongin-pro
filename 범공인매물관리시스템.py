@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from streamlit_gsheets import GSheetsConnection
-import urllib.parse  # 💡 [핵심] 인코딩 문제 해결을 위한 라이브러리 추가
+import urllib.parse
 
 # [1. 시스템 설정]
 st.set_page_config(
@@ -12,8 +12,8 @@ st.set_page_config(
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1bmTnLu-vMvlAGRSsCI4a8lk00U38covWl5Wfn9JZYVU/edit"
 
-# 💡 [핵심] 사장님 요청 6개 시트 실명칭 반영 (정확한 매핑 필수)
-SHEET_NAMES = ["임대", "임대(종료)", "매매", "매매(종료)", "임대브리핑", "매매브리핑"]
+# 💡 [핵심] 사장님 요청 7개 시트 실명칭 100% 반영
+SHEET_NAMES = ["임대", "임대(종료)", "매매", "매매(종료)", "매매브리핑", "임대브리핑", "스케줄"]
 
 # [2. 스타일 설정]
 st.markdown("""
@@ -27,61 +27,26 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# [3. 유틸리티: 명시적(Explicit) 초기화 함수]
-# 잔상(Ghosting) 방지를 위해 기본값을 명시적으로 대입
-def reset_all_filters(defaults):
-    # 텍스트 입력창 초기화
-    st.session_state['search_keyword'] = ""
-    st.session_state['exact_bunji'] = ""
-    
-    # 셀렉트박스 초기화
-    st.session_state['selected_gu_box'] = "전체"
-    st.session_state['selected_dong_box'] = "전체"
-    
-    # 숫자형 필터 초기화 (범위: Min=0, Max=현재 시트 데이터의 최대값)
-    st.session_state['min_dep'] = 0.0
-    st.session_state['max_dep'] = defaults['max_dep']
-    st.session_state['min_rent'] = 0.0
-    st.session_state['max_rent'] = defaults['max_rent']
-    st.session_state['min_kwon'] = 0.0
-    st.session_state['max_kwon'] = defaults['max_kwon']
-    st.session_state['min_man'] = 0.0
-    st.session_state['max_man'] = defaults['max_man']
-    st.session_state['min_area'] = 0.0
-    st.session_state['max_area'] = defaults['max_area']
-    st.session_state['min_fl'] = -20.0 # 지하 20층
-    st.session_state['max_fl'] = defaults['max_fl']
-    
-    # 체크박스 초기화
-    st.session_state['is_no_kwon'] = False
-
-# [4. 데이터 로드 엔진 (인코딩 방어 로직 탑재)]
+# [3. 데이터 로드 엔진 (방어 로직 강화)]
 @st.cache_data(ttl=600) 
 def load_data(sheet_name):
     conn = st.connection("gsheets", type=GSheetsConnection)
     
-    # [방어 로직] 빈 데이터프레임 구조 정의 (로딩 실패 시 반환용)
-    empty_df = pd.DataFrame(columns=["선택", "구분", "지역_구", "지역_동", "보증금", "월차임", "면적", "번지", "내용"])
+    # 빈 데이터프레임 생성 (에러 방지용)
+    empty_df = pd.DataFrame()
     
     try:
-        # 1차 시도: 일반적인 이름으로 로드
+        # 1차 시도
         df = conn.read(spreadsheet=SHEET_URL, worksheet=sheet_name, ttl=0)
-        
-    except Exception as e:
-        # 에러 발생 시 로그 출력 (개발자 확인용)
-        print(f"⚠️ 1차 로드 실패 ({sheet_name}): {e}")
-        
+    except Exception:
         try:
-            # 2차 시도: URL 인코딩 적용 (ASCII 에러 방어)
-            # 일부 환경에서는 한글이 깨질 수 있으므로 인코딩된 문자열 시도
+            # 2차 시도: URL 인코딩
             encoded_name = urllib.parse.quote(sheet_name)
             df = conn.read(spreadsheet=SHEET_URL, worksheet=encoded_name, ttl=0)
-        except Exception as e2:
-            # 2차 시도도 실패하면, 앱이 멈추지 않게 빈 데이터프레임 반환
-            # 사용자가 화면에서 인지할 수 있도록 경고 메시지는 메인 로직에서 처리
+        except Exception:
             return empty_df
 
-    # 데이터 정제 (Trim)
+    # 데이터 정제
     df.columns = df.columns.str.strip()
     
     # 컬럼명 매핑
@@ -91,9 +56,9 @@ def load_data(sheet_name):
         "관리비(만원)": "관리비", "해당층": "층", "매물 구분": "구분", "건물명": "건물명"
     }
     df = df.rename(columns=mapping)
-    df = df.fillna("") # 전체적인 빈값 처리
+    df = df.fillna("") 
     
-    # 숫자형 데이터 안전 변환 (오류 발생 시 0으로 처리)
+    # 숫자형 데이터 안전 변환 (컬럼이 존재할 때만 변환)
     numeric_cols = ["보증금", "월차임", "면적", "권리금", "관리비", "층"]
     for col in numeric_cols:
         if col in df.columns:
@@ -105,19 +70,17 @@ def load_data(sheet_name):
     
     return df
 
-# [5. 메인 실행 로직]
+# [4. 메인 실행 로직]
 st.title("🏙️ 범공인 매물장 (Pro)")
 
 # [A] 데이터 로드 및 시트 관리
-# 세션에 현재 시트 정보가 없으면 첫 번째 시트로 초기화
 if 'current_sheet' not in st.session_state:
     st.session_state.current_sheet = SHEET_NAMES[0]
 
 with st.sidebar:
     st.header("📂 작업 공간 선택")
     
-    # 시트 선택 (UI)
-    # index를 세션 상태와 일치시켜 UI 잔상 방지
+    # 시트 선택 (인덱스 에러 방지)
     try:
         current_idx = SHEET_NAMES.index(st.session_state.current_sheet)
     except ValueError:
@@ -125,169 +88,174 @@ with st.sidebar:
         
     selected_sheet = st.selectbox("데이터 시트", SHEET_NAMES, index=current_idx)
     
-    # [핵심] 시트 변경 감지 및 로직 실행
+    # 시트 변경 감지 -> 즉시 리프레시
     if selected_sheet != st.session_state.current_sheet:
-        st.session_state.current_sheet = selected_sheet # 상태 업데이트
-        st.cache_data.clear()   # 이전 시트 데이터 캐시 삭제 (중요)
-        st.rerun()              # 앱 재시작하여 새 데이터 로드
+        st.session_state.current_sheet = selected_sheet 
+        st.cache_data.clear()   
+        st.rerun()              
 
     st.divider()
     
-    # 리셋 버튼
-    reset_clicked = st.button("🔄 검색 조건 초기화", type="primary", use_container_width=True)
-    
+    # [수정된 초기화 버튼] 에러 원천 차단 (단순화)
+    if st.button("🔄 검색 조건 초기화", type="primary", use_container_width=True):
+        st.cache_data.clear()    # 데이터 갱신
+        st.session_state.clear() # 모든 세션 변수 삭제 (필터 초기화)
+        st.rerun()               # 앱 재시작
+
     st.caption("Developed by Gemini & Pro-Mode")
 
 # 데이터 불러오기
 try:
     df_main = load_data(st.session_state.current_sheet)
     
-    # 로드된 데이터가 비어있는 경우 (탭 이름 불일치 등)
-    if df_main.empty and '보증금' not in df_main.columns:
-        st.error(f"⚠️ '{st.session_state.current_sheet}' 탭을 불러올 수 없습니다. 구글 시트의 탭 이름을 확인해주세요.")
-        st.stop() # 이후 코드 실행 중단
+    if df_main.empty:
+        st.warning(f"⚠️ '{st.session_state.current_sheet}' 시트를 불러오지 못했습니다. 탭 이름을 확인하거나 데이터가 있는지 확인해주세요.")
+        st.stop()
 
     # ---------------------------------------------------------
-    # [스마트 기본값 계산]
-    # 시트가 바뀔 때마다 해당 데이터의 최대값을 계산하여 필터 범위(defaults)를 설정
+    # [스마트 기본값 계산] (안전한 Getter 함수 사용)
     # ---------------------------------------------------------
-    def get_max_val(col):
+    def get_safe_max(col, default=100.0):
+        # 컬럼이 존재하고 데이터가 있을 때만 최대값 반환, 아니면 기본값
         if col in df_main.columns and not df_main.empty:
-            return float(df_main[col].max())
-        return 0.0
+            val = df_main[col].max()
+            return float(val) if pd.notnull(val) else default
+        return default
 
-    defaults = {
-        'max_dep': get_max_val("보증금") if get_max_val("보증금") > 0 else 10000.0,
-        'max_rent': get_max_val("월차임") if get_max_val("월차임") > 0 else 500.0,
-        'max_kwon': get_max_val("권리금") if get_max_val("권리금") > 0 else 5000.0,
-        'max_man': get_max_val("관리비") if get_max_val("관리비") > 0 else 50.0,
-        'max_area': get_max_val("면적") if get_max_val("면적") > 0 else 100.0,
-        'max_fl': get_max_val("층") if get_max_val("층") > 0 else 50.0
+    # 각 필터별 최대값 계산 (컬럼 없으면 기본값으로 설정되어 에러 방지)
+    max_vals = {
+        'dep': get_safe_max("보증금", 10000.0),
+        'rent': get_safe_max("월차임", 500.0),
+        'kwon': get_safe_max("권리금", 5000.0),
+        'man': get_safe_max("관리비", 50.0),
+        'area': get_safe_max("면적", 100.0),
+        'fl': get_safe_max("층", 50.0)
     }
     
-    # 입력 가능한 절대 한계치 (1조 원)
     LIMIT_HUGE = 100000000.0 
     LIMIT_RENT = 1000000.0
 
-    # [리셋 버튼 동작]
-    # 버튼 클릭 또는 앱 최초 실행 시(검색어 키가 없을 때) 초기화 수행
-    if reset_clicked or 'search_keyword' not in st.session_state:
-        reset_all_filters(defaults)
-        if reset_clicked:
-            st.rerun()
-
     # ---------------------------------------------------------
-    # [모듈 2: 필터 엔진] (UI 바인딩)
+    # [모듈 2: 필터 엔진 UI]
     # ---------------------------------------------------------
     with st.expander("🔍 정밀 검색 및 제어판 (열기/닫기)", expanded=True):
         # 1. 텍스트 검색
         c1, c2, c3, c4 = st.columns([1.5, 1, 1, 1])
         with c1: 
-            st.text_input("통합 검색", key='search_keyword', placeholder="모든 항목 검색 (비고, 연락처, 메모 포함)")
+            st.text_input("통합 검색", key='search_keyword', placeholder="내용, 건물명, 번지, 메모 등 전체 검색")
         with c2: 
             st.text_input("번지 정밀검색", key='exact_bunji', placeholder="예: 50-1")
         
-        # 2. 지역 선택 (데이터 기반 동적 생성)
-        unique_gu = ["전체"] + sorted(df_main['지역_구'].unique().tolist())
+        # 2. 지역 선택 (컬럼 존재 여부 체크)
+        unique_gu = ["전체"]
+        if '지역_구' in df_main.columns:
+            unique_gu += sorted(df_main['지역_구'].astype(str).unique().tolist())
+            
         with c3: 
-            # 세션 값이 현재 리스트에 없으면 '전체'로 안전하게 변경
-            if st.session_state.selected_gu_box not in unique_gu:
-                st.session_state.selected_gu_box = "전체"
+            if 'selected_gu_box' not in st.session_state: st.session_state.selected_gu_box = "전체"
             selected_gu = st.selectbox("지역 (구)", unique_gu, key='selected_gu_box')
             
-        if selected_gu == "전체":
-            unique_dong = ["전체"] + sorted(df_main['지역_동'].unique().tolist())
-        else:
-            unique_dong = ["전체"] + sorted(df_main[df_main['지역_구'] == selected_gu]['지역_동'].unique().tolist())
-            
+        unique_dong = ["전체"]
+        if '지역_동' in df_main.columns:
+            if selected_gu == "전체":
+                unique_dong += sorted(df_main['지역_동'].astype(str).unique().tolist())
+            else:
+                unique_dong += sorted(df_main[df_main['지역_구'] == selected_gu]['지역_동'].astype(str).unique().tolist())
+                
         with c4: 
-            if st.session_state.selected_dong_box not in unique_dong:
-                st.session_state.selected_dong_box = "전체"
+            if 'selected_dong_box' not in st.session_state: st.session_state.selected_dong_box = "전체"
             selected_dong = st.selectbox("지역 (동)", unique_dong, key='selected_dong_box')
 
         st.divider()
 
-        # 3. 수치 입력 (세션 상태와 완벽 동기화)
+        # 3. 수치 입력 (세션 상태 활용)
         r1_col1, r1_col2, r1_col3 = st.columns(3)
+
+        # 초기값 설정을 위한 Helper
+        def get_sess(key, default):
+            if key not in st.session_state: st.session_state[key] = default
+            return st.session_state[key]
 
         with r1_col1:
             st.markdown("##### 💰 금액 조건 (단위: 만원)")
             c_d1, c_d2 = st.columns(2)
-            c_d1.number_input("보증금(최소)", step=1000.0, key='min_dep')
-            c_d2.number_input("보증금(최대)", max_value=LIMIT_HUGE, step=1000.0, key='max_dep')
+            c_d1.number_input("보증금(최소)", step=1000.0, key='min_dep', value=get_sess('min_dep', 0.0))
+            c_d2.number_input("보증금(최대)", max_value=LIMIT_HUGE, step=1000.0, key='max_dep', value=get_sess('max_dep', max_vals['dep']))
             
             c_r1, c_r2 = st.columns(2)
-            c_r1.number_input("월세(최소)", step=100.0, key='min_rent')
-            c_r2.number_input("월세(최대)", max_value=LIMIT_RENT, step=100.0, key='max_rent')
+            c_r1.number_input("월세(최소)", step=100.0, key='min_rent', value=get_sess('min_rent', 0.0))
+            c_r2.number_input("월세(최대)", max_value=LIMIT_RENT, step=100.0, key='max_rent', value=get_sess('max_rent', max_vals['rent']))
 
         with r1_col2:
             st.markdown("##### 🔑 권리금/관리비")
-            is_no_kwon = st.checkbox("무권리 매물만 보기", key='is_no_kwon')
+            is_no_kwon = st.checkbox("무권리 매물만 보기", key='is_no_kwon', value=get_sess('is_no_kwon', False))
             c_k1, c_k2 = st.columns(2)
-            c_k1.number_input("권리금(최소)", step=500.0, key='min_kwon', disabled=is_no_kwon)
-            c_k2.number_input("권리금(최대)", max_value=LIMIT_HUGE, step=500.0, key='max_kwon', disabled=is_no_kwon)
+            c_k1.number_input("권리금(최소)", step=500.0, key='min_kwon', disabled=is_no_kwon, value=get_sess('min_kwon', 0.0))
+            c_k2.number_input("권리금(최대)", max_value=LIMIT_HUGE, step=500.0, key='max_kwon', disabled=is_no_kwon, value=get_sess('max_kwon', max_vals['kwon']))
 
             c_m1, c_m2 = st.columns(2)
-            c_m1.number_input("관리비(최소)", step=5.0, key='min_man')
-            c_m2.number_input("관리비(최대)", max_value=LIMIT_RENT, step=5.0, key='max_man')
+            # 관리비 컬럼이 없어도 UI는 유지하되, 필터링에서 제외 (에러 방지)
+            c_m1.number_input("관리비(최소)", step=5.0, key='min_man', value=get_sess('min_man', 0.0))
+            c_m2.number_input("관리비(최대)", max_value=LIMIT_RENT, step=5.0, key='max_man', value=get_sess('max_man', max_vals['man']))
 
         with r1_col3:
             st.markdown("##### 📐 면적/층수")
             c_a1, c_a2 = st.columns(2)
-            c_a1.number_input("면적(최소)", step=10.0, key='min_area')
-            c_a2.number_input("면적(최대)", max_value=LIMIT_HUGE, step=10.0, key='max_area')
+            c_a1.number_input("면적(최소)", step=10.0, key='min_area', value=get_sess('min_area', 0.0))
+            c_a2.number_input("면적(최대)", max_value=LIMIT_HUGE, step=10.0, key='max_area', value=get_sess('max_area', max_vals['area']))
             
             c_f1, c_f2 = st.columns(2)
-            c_f1.number_input("층(최저)", min_value=-20.0, step=1.0, key='min_fl')
-            c_f2.number_input("층(최고)", max_value=100.0, step=1.0, key='max_fl')
+            c_f1.number_input("층(최저)", min_value=-20.0, step=1.0, key='min_fl', value=get_sess('min_fl', -20.0))
+            c_f2.number_input("층(최고)", max_value=100.0, step=1.0, key='max_fl', value=get_sess('max_fl', max_vals['fl']))
 
     # ---------------------------------------------------------
-    # [필터링 로직: 안전성 & 범위 확장]
+    # [필터링 로직: 컬럼 존재 여부 확인 필수]
     # ---------------------------------------------------------
     df_filtered = df_main.copy()
 
-    # 1. 지역
-    if selected_gu != "전체":
+    # 1. 지역 (컬럼 있을 때만)
+    if selected_gu != "전체" and '지역_구' in df_filtered.columns:
         df_filtered = df_filtered[df_filtered['지역_구'] == selected_gu]
-    if selected_dong != "전체":
+    if selected_dong != "전체" and '지역_동' in df_filtered.columns:
         df_filtered = df_filtered[df_filtered['지역_동'] == selected_dong]
 
     # 2. 번지 (정밀)
-    if st.session_state.exact_bunji:
+    if st.session_state.exact_bunji and '번지' in df_filtered.columns:
         df_filtered = df_filtered[df_filtered['번지'].astype(str).str.strip() == st.session_state.exact_bunji.strip()]
 
-    # 3. 수치 범위
-    df_filtered = df_filtered[
-        (df_filtered['보증금'] >= st.session_state.min_dep) & (df_filtered['보증금'] <= st.session_state.max_dep) &
-        (df_filtered['월차임'] >= st.session_state.min_rent) & (df_filtered['월차임'] <= st.session_state.max_rent) &
-        (df_filtered['면적'] >= st.session_state.min_area) & (df_filtered['면적'] <= st.session_state.max_area) &
-        (df_filtered['관리비'] >= st.session_state.min_man) & (df_filtered['관리비'] <= st.session_state.max_man)
-    ]
+    # 3. 수치 범위 (각 컬럼이 존재하는지 체크 후 필터링 -> 에러 원천 차단)
+    if '보증금' in df_filtered.columns:
+        df_filtered = df_filtered[(df_filtered['보증금'] >= st.session_state.min_dep) & (df_filtered['보증금'] <= st.session_state.max_dep)]
     
+    if '월차임' in df_filtered.columns:
+        df_filtered = df_filtered[(df_filtered['월차임'] >= st.session_state.min_rent) & (df_filtered['월차임'] <= st.session_state.max_rent)]
+        
+    if '면적' in df_filtered.columns:
+        df_filtered = df_filtered[(df_filtered['면적'] >= st.session_state.min_area) & (df_filtered['면적'] <= st.session_state.max_area)]
+        
+    # [수정] 관리비 에러 해결: 컬럼 있을 때만 필터 적용
+    if '관리비' in df_filtered.columns:
+        df_filtered = df_filtered[(df_filtered['관리비'] >= st.session_state.min_man) & (df_filtered['관리비'] <= st.session_state.max_man)]
+        
     if '층' in df_filtered.columns:
-         df_filtered = df_filtered[
-            (df_filtered['층'] >= st.session_state.min_fl) & (df_filtered['층'] <= st.session_state.max_fl)
-         ]
+         df_filtered = df_filtered[(df_filtered['층'] >= st.session_state.min_fl) & (df_filtered['층'] <= st.session_state.max_fl)]
 
     # 4. 권리금
-    if is_no_kwon:
-        df_filtered = df_filtered[df_filtered['권리금'] == 0]
-    else:
-        df_filtered = df_filtered[
-            (df_filtered['권리금'] >= st.session_state.min_kwon) & (df_filtered['권리금'] <= st.session_state.max_kwon)
-        ]
+    if '권리금' in df_filtered.columns:
+        if is_no_kwon:
+            df_filtered = df_filtered[df_filtered['권리금'] == 0]
+        else:
+            df_filtered = df_filtered[(df_filtered['권리금'] >= st.session_state.min_kwon) & (df_filtered['권리금'] <= st.session_state.max_kwon)]
 
     # ---------------------------------------------------------
     # [핵심] 슈퍼 옴니 서치 (Super Omni Search)
-    # 모든 컬럼(숨겨진 비고 포함)을 하나의 문자열로 합쳐서 검색
     # ---------------------------------------------------------
-    search_val = st.session_state.search_keyword.strip() # 공백 제거 전처리
+    search_val = st.session_state.search_keyword.strip()
     if search_val:
-        # '선택' 컬럼은 제외하고 나머지 모든 컬럼을 대상으로 함
+        # '선택' 컬럼은 제외
         search_scope = df_filtered.drop(columns=['선택'], errors='ignore')
         
-        # 모든 컬럼을 문자열로 변환하고 가로로 합침(join) -> 해당 문자열에 검색어가 있는지 확인
-        # 이 방식을 사용하면 '비고', '연락처' 등 화면에 안 보이는 컬럼도 모두 검색됨
+        # [수정] 모든 데이터를 문자열로 변환하여 안전하게 검색 (숫자, 날짜 포함)
         mask = search_scope.fillna("").astype(str).apply(lambda x: ' '.join(x), axis=1).str.contains(search_val, case=False)
         
         df_filtered = df_filtered[mask]
@@ -301,17 +269,16 @@ try:
         st.info(f"📋 **{st.session_state.current_sheet}** 탭 검색 결과: **{len(df_filtered)}**건 (전체 {len(df_main)}건)")
     
     # ---------------------------------------------------------
-    # [핵심] 리스트 수정 방지 (Read-only) & 키 충돌 방지
-    # '선택' 컬럼을 제외한 모든 컬럼을 비활성화(disabled) 처리
+    # [핵심] 리스트 수정 방지 (Read-only)
     # ---------------------------------------------------------
     disabled_cols = [col for col in df_filtered.columns if col != '선택']
     
-    # key에 시트명을 넣어 강제 리프레시 (시트 전환 시 잔상 제거)
+    # key에 시트명을 넣어 강제 리프레시 (시트 전환 시 UI 꼬임 방지)
     editor_key = f"editor_{st.session_state.current_sheet}"
     
     st.data_editor(
         df_filtered,
-        disabled=disabled_cols, # '선택' 빼고 전부 수정 불가 (Read-only)
+        disabled=disabled_cols, # '선택' 빼고 전부 수정 불가
         use_container_width=True,
         hide_index=True,
         height=600,
