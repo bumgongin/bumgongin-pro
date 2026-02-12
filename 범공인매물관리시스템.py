@@ -10,8 +10,8 @@ st.set_page_config(
 )
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1bmTnLu-vMvlAGRSsCI4a8lk00U38covWl5Wfn9JZYVU/edit"
-# 💡 [중요] 실제 구글 시트 탭 이름으로 수정 필요
-SHEET_NAMES = ["시트1", "임대", "매매"] 
+# 💡 [수정] '시트1' 제거 및 실제 탭 이름 반영
+SHEET_NAMES = ["임대", "매매"] 
 
 # [2. 스타일 설정]
 st.markdown("""
@@ -25,57 +25,77 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# [3. 데이터 로드 엔진]
-# ttl=0설정으로 캐시를 너무 오래 잡지 않게 하여 시트 변경 시 즉시 반영 유도
+# [3. 유틸리티: 스마트 리셋 함수]
+# 세션 전체를 날리지 않고, 필터링 관련 키만 삭제하여 '현재 시트'는 유지함
+def clear_filter_state():
+    # 삭제할 위젯 키 목록 정의
+    keys_to_clear = [
+        'search_keyword', 'exact_bunji', 
+        'selected_gu_box', 'selected_dong_box',
+        'min_dep', 'max_dep', 'min_rent', 'max_rent',
+        'min_kwon', 'max_kwon', 'min_man', 'max_man',
+        'min_area', 'max_area', 'min_fl', 'max_fl',
+        'is_no_kwon'
+    ]
+    for key in keys_to_clear:
+        if key in st.session_state:
+            del st.session_state[key]
+
+# [4. 데이터 로드 엔진]
 @st.cache_data(ttl=600) 
 def load_data(sheet_name):
     conn = st.connection("gsheets", type=GSheetsConnection)
     try:
-        # worksheet에 따라 다른 데이터를 가져옴
         df = conn.read(spreadsheet=SHEET_URL, worksheet=sheet_name, ttl=0)
     except Exception:
-        # 탭 이름 오류 시 안전장치 (기본 탭 로드)
         df = conn.read(spreadsheet=SHEET_URL, ttl=0)
         
     df.columns = df.columns.str.strip()
     
-    # 매핑 테이블 (필요시 시트 컬럼명에 맞춰 조정)
     mapping = {
         "보증금(만원)": "보증금", "월차임(만원)": "월차임", "권리금_입금가(만원)": "권리금",
         "전용면적(평)": "면적", "매물 특징": "내용", "지역_번지": "번지",
         "관리비(만원)": "관리비", "해당층": "층", "매물 구분": "구분", "건물명": "건물명"
     }
     df = df.rename(columns=mapping)
-    df = df.fillna("")
+    df = df.fillna("") # 전체적인 빈값 처리
     
-    # 숫자형 데이터 안전 변환
     numeric_cols = ["보증금", "월차임", "면적", "권리금", "관리비", "층"]
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-    # '선택' 컬럼 초기화
     if '선택' in df.columns: df = df.drop(columns=['선택'])
     df.insert(0, '선택', False)
     return df
 
-# [4. 메인 실행 로직]
+# [5. 메인 실행 로직]
 st.title("🏙️ 범공인 매물장 (Pro)")
 
-# 사이드바: 시트 선택
+# 사이드바: 시트 선택 및 자동 갱신 로직
 with st.sidebar:
     st.header("📂 작업 공간 선택")
-    # 시트를 바꾸면 자동으로 load_data가 새로운 sheet_name으로 실행됨
-    selected_sheet = st.selectbox("데이터 시트", SHEET_NAMES)
     
+    # 세션에 현재 시트 정보가 없으면 초기화
+    if 'current_sheet' not in st.session_state:
+        st.session_state.current_sheet = SHEET_NAMES[0]
+        
+    # 시트 선택 위젯 (값 변경 감지)
+    selected_sheet = st.selectbox("데이터 시트", SHEET_NAMES, index=SHEET_NAMES.index(st.session_state.current_sheet) if st.session_state.current_sheet in SHEET_NAMES else 0)
+    
+    # [핵심] 시트가 변경되었을 때만 작동하는 로직
+    if selected_sheet != st.session_state.current_sheet:
+        st.cache_data.clear()      # 1. 데이터 캐시 강제 삭제 (새 데이터 불러오기 위함)
+        clear_filter_state()       # 2. 기존 필터 조건 초기화 (시트가 바뀌면 필터도 리셋되어야 함)
+        st.session_state.current_sheet = selected_sheet # 3. 현재 시트 상태 업데이트
+        st.rerun()                 # 4. 앱 재시작
+        
     st.divider()
     
-    # [수정된 초기화 버튼 로직]
-    # 사이드바에 두어 언제든 접근 가능하게 함 (또는 메인 화면 하단 배치 가능)
-    if st.button("🔄 데이터 및 필터 초기화", type="primary", use_container_width=True):
-        st.cache_data.clear()   # 1. 데이터 캐시 삭제 (구글 시트 새로 읽기)
-        st.session_state.clear() # 2. 필터 입력값(Session State) 전체 삭제
-        st.rerun()              # 3. 앱 재시작 (모든 위젯 기본값 복구)
+    # 수동 초기화 버튼
+    if st.button("🔄 검색 조건 초기화", type="primary", use_container_width=True):
+        clear_filter_state() # 스마트 리셋 실행
+        st.rerun()
 
     st.caption("Developed by Gemini & Pro-Mode")
 
@@ -90,7 +110,6 @@ try:
             return float(df_main[col].max())
         return 0.0
 
-    # 데이터가 로드된 직후의 최대값 계산
     curr_max_dep = get_max_val("보증금") if get_max_val("보증금") > 0 else 10000.0
     curr_max_rent = get_max_val("월차임") if get_max_val("월차임") > 0 else 500.0
     curr_max_kwon = get_max_val("권리금") if get_max_val("권리금") > 0 else 5000.0
@@ -98,12 +117,11 @@ try:
     curr_max_area = get_max_val("면적") if get_max_val("면적") > 0 else 100.0
     curr_max_fl = get_max_val("층") if get_max_val("층") > 0 else 50.0
 
-    # 절대 한계치 (1조 원)
     LIMIT_HUGE = 100000000.0 
     LIMIT_RENT = 1000000.0
 
     # ---------------------------------------------------------
-    # [모듈 2: 최종 보수된 필터 엔진]
+    # [모듈 2: 필터 엔진]
     # ---------------------------------------------------------
     with st.expander("🔍 정밀 검색 및 제어판 (열기/닫기)", expanded=True):
         # [A] 검색 및 지역
@@ -127,8 +145,6 @@ try:
         st.divider()
 
         # [B] 수치 정밀 입력
-        # value를 설정하여 초기값을 '현재 데이터의 최대값'으로 잡음
-        # 초기화 버튼 클릭 시 session_state가 날아가므로, 다시 여기로 와서 value값(curr_max_...)으로 세팅됨
         r1_col1, r1_col2, r1_col3 = st.columns(3)
 
         with r1_col1:
@@ -159,11 +175,10 @@ try:
             max_area = c_a2.number_input("면적(최대)", value=curr_max_area, max_value=LIMIT_HUGE, step=10.0, key='max_area')
             
             c_f1, c_f2 = st.columns(2)
-            # [수정] 지하층 검색을 위해 min_value를 -20.0으로 확장
             min_fl = c_f1.number_input("층(최저)", value=-2.0, min_value=-20.0, step=1.0, key='min_fl')
             max_fl = c_f2.number_input("층(최고)", value=curr_max_fl if curr_max_fl > 0 else 50.0, max_value=100.0, step=1.0, key='max_fl')
 
-    # [C] 필터링 로직 (변수에 직접 할당된 값 사용)
+    # [C] 필터링 로직
     df_filtered = df_main.copy()
 
     # 1. 지역 필터
@@ -197,25 +212,27 @@ try:
             (df_filtered['권리금'] >= min_kwon) & (df_filtered['권리금'] <= max_kwon)
         ]
 
-    # 5. 키워드 검색 로직 (안전한 방식)
+    # 5. 키워드 검색 로직 (보강됨: fillna 사용)
     if search_keyword:
-        # 모든 행 False 마스크 생성
         keyword_mask = pd.Series([False] * len(df_filtered), index=df_filtered.index)
         
-        # 존재하는 컬럼에 대해서만 OR 연산
+        # [수정] fillna("")로 빈 값을 문자열로 채운 뒤 검색하여 에러 방지
         if '내용' in df_filtered.columns:
-            keyword_mask |= df_filtered['내용'].astype(str).str.contains(search_keyword, case=False)
+            keyword_mask |= df_filtered['내용'].fillna("").astype(str).str.contains(search_keyword, case=False)
         if '건물명' in df_filtered.columns:
-            keyword_mask |= df_filtered['건물명'].astype(str).str.contains(search_keyword, case=False)
+            keyword_mask |= df_filtered['건물명'].fillna("").astype(str).str.contains(search_keyword, case=False)
         if '구분' in df_filtered.columns:
-            keyword_mask |= df_filtered['구분'].astype(str).str.contains(search_keyword, case=False)
+            keyword_mask |= df_filtered['구분'].fillna("").astype(str).str.contains(search_keyword, case=False)
             
         df_filtered = df_filtered[keyword_mask]
 
     # 결과 출력
-    st.info(f"📋 **{selected_sheet}** 탭 검색 결과: **{len(df_filtered)}**건 (전체 {len(df_main)}건)")
+    if len(df_filtered) == 0:
+        st.warning(f"🔍 '{selected_sheet}' 시트에서 조건에 맞는 매물을 찾을 수 없습니다. 필터를 초기화해보세요.")
+    else:
+        st.info(f"📋 **{selected_sheet}** 탭 검색 결과: **{len(df_filtered)}**건 (전체 {len(df_main)}건)")
     
-    # [수정] column_order 삭제 -> 모든 컬럼 표시
+    # [수정] column_order 없음 -> 리스트 전체 노출
     st.data_editor(
         df_filtered,
         use_container_width=True,
@@ -234,5 +251,5 @@ try:
     )
 
 except Exception as e:
-    st.error(f"🚨 시스템 에러: {e}")
-    st.write("잠시 후 다시 시도하거나, [초기화] 버튼을 눌러주세요.")
+    st.error(f"🚨 시스템 에러 발생: {e}")
+    st.write("잠시 후 다시 시도하거나, [검색 조건 초기화] 버튼을 눌러주세요.")
