@@ -12,7 +12,7 @@ st.set_page_config(
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1bmTnLu-vMvlAGRSsCI4a8lk00U38covWl5Wfn9JZYVU/edit"
 
-# 💡 [핵심] 6개 시트 명칭 확정
+# 💡 [설정] 6개 시트 명칭 (정확도 필수)
 SHEET_NAMES = ["임대", "임대(종료)", "매매", "매매(종료)", "임대브리핑", "매매브리핑"]
 
 # [2. 스타일 설정]
@@ -28,26 +28,30 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# [3. 데이터 로드 엔진 (매매/임대 통합 매핑 & 인코딩 방어)]
+# [3. 데이터 로드 엔진 (정직한 로드 & 무결성 보장)]
 @st.cache_data(ttl=600) 
 def load_data(sheet_name):
     conn = st.connection("gsheets", type=GSheetsConnection)
-    empty_df = pd.DataFrame()
+    df = None
     
-    # 1. 데이터 읽기 (ASCII 에러 방어)
+    # [1단계] 엄격한 시트 로드 (가짜 로드 금지)
     try:
+        # 1. 원본 이름 시도
         df = conn.read(spreadsheet=SHEET_URL, worksheet=sheet_name, ttl=0)
     except Exception:
         try:
+            # 2. URL 인코딩 이름 시도 (한글 깨짐 방어)
             encoded_name = urllib.parse.quote(sheet_name)
             df = conn.read(spreadsheet=SHEET_URL, worksheet=encoded_name, ttl=0)
         except Exception:
-            return empty_df
+            # 둘 다 실패 시 None 반환 (메인 로직에서 에러 처리)
+            return None
 
-    # 2. 데이터 정제
-    df.columns = df.columns.str.strip()
+    # [2단계] 데이터 컬럼 정제
+    df.columns = df.columns.str.strip() # 앞뒤 공백 제거
     
-    # 3. 컬럼 매핑 (임대 + 매매 통합)
+    # [3단계] 컬럼 매핑 (실제 존재하는 컬럼만 변경)
+    # 없는 컬럼을 억지로 만들지 않음
     mapping = {
         # 공통
         "지역_번지": "번지", "매물 특징": "내용", "해당층": "층", "매물 구분": "구분", 
@@ -58,18 +62,22 @@ def load_data(sheet_name):
         "매매가(만원)": "매매가", "수익률(%)": "수익률", "대지면적(평)": "대지면적", "연면적(평)": "연면적"
     }
     df = df.rename(columns=mapping)
-    df = df.fillna("") 
     
-    # 4. 숫자형 데이터 안전 변환 (통합)
-    numeric_cols = [
-        "보증금", "월차임", "권리금", "관리비", "면적", "층", # 임대
-        "매매가", "수익률", "대지면적", "연면적" # 매매
+    # [4단계] 숫자형 변환 (존재하는 컬럼에 한해서만 수행)
+    numeric_candidates = [
+        "보증금", "월차임", "권리금", "관리비", "면적", "층", 
+        "매매가", "수익률", "대지면적", "연면적"
     ]
-    for col in numeric_cols:
+    
+    for col in numeric_candidates:
         if col in df.columns:
+            # 문자가 섞여 있으면 NaN 처리 후 0으로 변환 (필터링을 위해)
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+    
+    # 전체 데이터의 결측치는 빈 문자열로 처리 (검색 안전성)
+    df = df.fillna("")
 
-    # 5. '선택' 컬럼 초기화
+    # '선택' 컬럼 초기화
     if '선택' in df.columns: df = df.drop(columns=['선택'])
     df.insert(0, '선택', False)
     
@@ -78,258 +86,261 @@ def load_data(sheet_name):
 # [4. 메인 실행 로직]
 st.title("🏙️ 범공인 매물장 (Pro)")
 
-# [A] 시트 관리 및 사이드바
+# [A] 시트 관리
 if 'current_sheet' not in st.session_state:
     st.session_state.current_sheet = SHEET_NAMES[0]
 
 with st.sidebar:
     st.header("📂 작업 공간 선택")
     
+    # 인덱스 안전 확보
     try:
-        current_idx = SHEET_NAMES.index(st.session_state.current_sheet)
-    except ValueError:
-        current_idx = 0
+        curr_idx = SHEET_NAMES.index(st.session_state.current_sheet)
+    except:
+        curr_idx = 0
         
-    selected_sheet = st.selectbox("데이터 시트", SHEET_NAMES, index=current_idx)
+    selected_sheet = st.selectbox("데이터 시트", SHEET_NAMES, index=curr_idx)
     
-    # 시트 변경 시: 캐시 삭제 -> 앱 재시작 (데이터 갱신)
+    # 시트 변경 감지
     if selected_sheet != st.session_state.current_sheet:
-        st.session_state.current_sheet = selected_sheet 
-        st.cache_data.clear()   
-        st.rerun()              
+        st.session_state.current_sheet = selected_sheet
+        st.cache_data.clear() # 데이터 갱신
+        st.rerun() # 앱 리셋
 
     st.divider()
     
-    # 초기화 버튼: 세션 충돌 방지 (Clean Reset)
+    # 초기화 버튼 (세션 및 캐시 완전 삭제)
     if st.button("🔄 검색 조건 초기화", type="primary", use_container_width=True):
-        st.cache_data.clear()    
-        st.session_state.clear() 
-        st.rerun()               
+        st.cache_data.clear()
+        st.session_state.clear()
+        st.rerun()
 
     st.caption("Developed by Gemini & Pro-Mode")
 
-# 데이터 불러오기
-try:
-    df_main = load_data(st.session_state.current_sheet)
+# [B] 데이터 로드 실행
+df_main = load_data(st.session_state.current_sheet)
+
+# [C] 로드 실패 시 정직한 에러 출력 (Empty DataFrame 아님)
+if df_main is None:
+    st.error(f"🚨 **오류 발생:** '{st.session_state.current_sheet}' 시트를 찾을 수 없습니다.")
+    st.info("💡 **해결 방법:** 구글 시트 하단의 탭 이름이 위 이름과 띄어쓰기까지 정확히 일치하는지 확인해주세요.")
+    st.stop() # 이후 코드 실행 중단
+
+# 현재 모드 판단 (매매 포함 여부)
+is_sale_mode = "매매" in st.session_state.current_sheet
+
+# ---------------------------------------------------------
+# [모듈 2: 동적 필터 엔진 UI]
+# ---------------------------------------------------------
+# 없는 컬럼은 UI를 띄우지 않음으로써 사용자 혼란 방지
+# ---------------------------------------------------------
+
+# Helper: 최대값 가져오기 (컬럼 없으면 None 반환)
+def get_max_if_exists(col):
+    if col in df_main.columns and not df_main.empty:
+        val = df_main[col].max()
+        return float(val) if val > 0 else 100.0
+    return None
+
+# Helper: 세션값 가져오기 (Key가 없으면 Default 설정)
+def sess(key, default):
+    if key not in st.session_state:
+        st.session_state[key] = default
+    return st.session_state[key]
+
+with st.expander("🔍 정밀 검색 및 제어판 (열기/닫기)", expanded=True):
+    # 1. 텍스트 검색
+    c1, c2, c3, c4 = st.columns([1.5, 1, 1, 1])
+    with c1: st.text_input("통합 검색", key='search_keyword', placeholder="내용, 건물명, 번지 등")
+    with c2: st.text_input("번지 정밀검색", key='exact_bunji', placeholder="예: 50-1")
     
-    if df_main.empty:
-        st.warning(f"⚠️ '{st.session_state.current_sheet}' 데이터를 불러올 수 없습니다. 탭 이름을 확인하세요.")
-        st.stop()
-
-    # ---------------------------------------------------------
-    # [스마트 기본값 계산] (안전한 Getter)
-    # ---------------------------------------------------------
-    def get_safe_max(col, default=100.0):
-        if col in df_main.columns and not df_main.empty:
-            val = df_main[col].max()
-            return float(val) if pd.notnull(val) else default
-        return default
-
-    # 현재 시트가 '매매' 관련인지 '임대' 관련인지 판단
-    is_sale_mode = "매매" in st.session_state.current_sheet
-
-    # ---------------------------------------------------------
-    # [모듈 2: 조건부 필터 엔진 UI]
-    # ---------------------------------------------------------
-    with st.expander("🔍 정밀 검색 및 제어판 (열기/닫기)", expanded=True):
-        # 1. 공통 검색 구역
-        c1, c2, c3, c4 = st.columns([1.5, 1, 1, 1])
-        with c1: 
-            st.text_input("통합 검색", key='search_keyword', placeholder="내용, 건물명, 번지 등 전체 검색")
-        with c2: 
-            st.text_input("번지 정밀검색", key='exact_bunji', placeholder="예: 50-1")
+    # 지역 선택 (컬럼이 있을 때만 활성화)
+    unique_gu = ["전체"]
+    if '지역_구' in df_main.columns:
+        unique_gu += sorted(df_main['지역_구'].astype(str).unique().tolist())
+    
+    with c3: 
+        sel_gu = st.selectbox("지역 (구)", unique_gu, key='selected_gu')
         
-        # 지역 선택 (컬럼 존재 시)
-        unique_gu = ["전체"]
-        if '지역_구' in df_main.columns:
-            unique_gu += sorted(df_main['지역_구'].astype(str).unique().tolist())
-            
-        with c3: 
-            if 'selected_gu_box' not in st.session_state: st.session_state.selected_gu_box = "전체"
-            selected_gu = st.selectbox("지역 (구)", unique_gu, key='selected_gu_box')
-            
-        unique_dong = ["전체"]
-        if '지역_동' in df_main.columns:
-            if selected_gu == "전체":
-                unique_dong += sorted(df_main['지역_동'].astype(str).unique().tolist())
-            else:
-                unique_dong += sorted(df_main[df_main['지역_구'] == selected_gu]['지역_동'].astype(str).unique().tolist())
-                
-        with c4: 
-            if 'selected_dong_box' not in st.session_state: st.session_state.selected_dong_box = "전체"
-            selected_dong = st.selectbox("지역 (동)", unique_dong, key='selected_dong_box')
-
-        st.divider()
-
-        # 2. 조건부 수치 입력 (매매 vs 임대)
-        r1_col1, r1_col2, r1_col3 = st.columns(3)
-
-        # Helper: 세션 값 가져오기
-        def get_sess(key, default):
-            if key not in st.session_state: st.session_state[key] = default
-            return st.session_state[key]
-
-        # [A] 매매 모드일 때 UI
-        if is_sale_mode:
-            max_price = get_safe_max("매매가", 100000.0)
-            max_land = get_safe_max("대지면적", 100.0)
-            max_total = get_safe_max("연면적", 200.0)
-            
-            with r1_col1:
-                st.markdown("##### 💰 매매가 (단위: 만원)")
-                c_d1, c_d2 = st.columns(2)
-                c_d1.number_input("매매가(최소)", step=1000.0, key='min_price', value=get_sess('min_price', 0.0))
-                c_d2.number_input("매매가(최대)", max_value=100000000.0, step=1000.0, key='max_price', value=get_sess('max_price', max_price))
-            
-            with r1_col2:
-                st.markdown("##### 📊 수익률 & 층수")
-                c_k1, c_k2 = st.columns(2)
-                c_k1.number_input("수익률(최소)", step=0.1, key='min_yield', value=get_sess('min_yield', 0.0))
-                c_k2.number_input("수익률(최대)", max_value=100.0, step=0.1, key='max_yield', value=get_sess('max_yield', 20.0))
-                
-                # 층수는 공통
-                c_f1, c_f2 = st.columns(2)
-                c_f1.number_input("층(최저)", min_value=-20.0, step=1.0, key='min_fl', value=get_sess('min_fl', -20.0))
-                c_f2.number_input("층(최고)", max_value=200.0, step=1.0, key='max_fl', value=get_sess('max_fl', 100.0))
-
-            with r1_col3:
-                st.markdown("##### 📐 면적 (대지/연면적)")
-                c_a1, c_a2 = st.columns(2)
-                c_a1.number_input("대지(최소)", step=1.0, key='min_land', value=get_sess('min_land', 0.0))
-                c_a2.number_input("대지(최대)", max_value=1000000.0, step=1.0, key='max_land', value=get_sess('max_land', max_land))
-                
-                c_b1, c_b2 = st.columns(2)
-                c_b1.number_input("연면(최소)", step=1.0, key='min_total', value=get_sess('min_total', 0.0))
-                c_b2.number_input("연면(최대)", max_value=1000000.0, step=1.0, key='max_total', value=get_sess('max_total', max_total))
-
-        # [B] 임대 모드일 때 UI (기존 유지)
+    unique_dong = ["전체"]
+    if '지역_동' in df_main.columns:
+        if sel_gu == "전체":
+            unique_dong += sorted(df_main['지역_동'].astype(str).unique().tolist())
         else:
-            max_dep = get_safe_max("보증금", 10000.0)
-            max_rent = get_safe_max("월차임", 500.0)
-            max_area = get_safe_max("면적", 100.0)
+            unique_dong += sorted(df_main[df_main['지역_구'] == sel_gu]['지역_동'].astype(str).unique().tolist())
             
-            with r1_col1:
-                st.markdown("##### 💰 임대 조건 (만원)")
-                c_d1, c_d2 = st.columns(2)
-                c_d1.number_input("보증금(최소)", step=500.0, key='min_dep', value=get_sess('min_dep', 0.0))
-                c_d2.number_input("보증금(최대)", max_value=100000000.0, step=500.0, key='max_dep', value=get_sess('max_dep', max_dep))
-                
-                c_r1, c_r2 = st.columns(2)
-                c_r1.number_input("월세(최소)", step=10.0, key='min_rent', value=get_sess('min_rent', 0.0))
-                c_r2.number_input("월세(최대)", max_value=10000000.0, step=10.0, key='max_rent', value=get_sess('max_rent', max_rent))
+    with c4: 
+        sel_dong = st.selectbox("지역 (동)", unique_dong, key='selected_dong')
 
-            with r1_col2:
-                st.markdown("##### 🔑 권리금/관리비")
-                is_no_kwon = st.checkbox("무권리 매물만 보기", key='is_no_kwon', value=get_sess('is_no_kwon', False))
-                c_k1, c_k2 = st.columns(2)
-                c_k1.number_input("권리금(최소)", step=100.0, key='min_kwon', disabled=is_no_kwon, value=get_sess('min_kwon', 0.0))
-                c_k2.number_input("권리금(최대)", max_value=100000000.0, step=100.0, key='max_kwon', disabled=is_no_kwon, value=get_sess('max_kwon', 50000.0))
+    st.divider()
 
-                c_m1, c_m2 = st.columns(2)
-                c_m1.number_input("관리비(최소)", step=5.0, key='min_man', value=get_sess('min_man', 0.0))
-                c_m2.number_input("관리비(최대)", max_value=1000000.0, step=5.0, key='max_man', value=get_sess('max_man', 1000.0))
+    # 2. 수치 필터 (매매 vs 임대 분기 + 컬럼 존재 여부 체크)
+    r1, r2, r3 = st.columns(3)
+    LIMIT_HUGE = 100000000.0 # 1조
 
-            with r1_col3:
-                st.markdown("##### 📐 면적/층수")
-                c_a1, c_a2 = st.columns(2)
-                c_a1.number_input("면적(최소)", step=5.0, key='min_area', value=get_sess('min_area', 0.0))
-                c_a2.number_input("면적(최대)", max_value=1000000.0, step=5.0, key='max_area', value=get_sess('max_area', max_area))
-                
-                c_f1, c_f2 = st.columns(2)
-                c_f1.number_input("층(최저)", min_value=-20.0, step=1.0, key='min_fl', value=get_sess('min_fl', -20.0))
-                c_f2.number_input("층(최고)", max_value=200.0, step=1.0, key='max_fl', value=get_sess('max_fl', 100.0))
-
-    # ---------------------------------------------------------
-    # [지능형 필터링 로직: 컬럼 존재 여부 확인 필수]
-    # ---------------------------------------------------------
-    df_filtered = df_main.copy()
-
-    # 1. 지역
-    if selected_gu != "전체" and '지역_구' in df_filtered.columns:
-        df_filtered = df_filtered[df_filtered['지역_구'] == selected_gu]
-    if selected_dong != "전체" and '지역_동' in df_filtered.columns:
-        df_filtered = df_filtered[df_filtered['지역_동'] == selected_dong]
-
-    # 2. 번지
-    if st.session_state.exact_bunji and '번지' in df_filtered.columns:
-        df_filtered = df_filtered[df_filtered['번지'].astype(str).str.strip() == st.session_state.exact_bunji.strip()]
-
-    # 3. 수치 필터 (매매 vs 임대 분기 처리)
     if is_sale_mode:
-        if '매매가' in df_filtered.columns:
-            df_filtered = df_filtered[(df_filtered['매매가'] >= st.session_state.min_price) & (df_filtered['매매가'] <= st.session_state.max_price)]
-        if '수익률' in df_filtered.columns:
-            df_filtered = df_filtered[(df_filtered['수익률'] >= st.session_state.min_yield) & (df_filtered['수익률'] <= st.session_state.max_yield)]
-        if '대지면적' in df_filtered.columns:
-            df_filtered = df_filtered[(df_filtered['대지면적'] >= st.session_state.min_land) & (df_filtered['대지면적'] <= st.session_state.max_land)]
-        if '연면적' in df_filtered.columns:
-            df_filtered = df_filtered[(df_filtered['연면적'] >= st.session_state.min_total) & (df_filtered['연면적'] <= st.session_state.max_total)]
-    else:
-        # 임대 필터
-        if '보증금' in df_filtered.columns:
-            df_filtered = df_filtered[(df_filtered['보증금'] >= st.session_state.min_dep) & (df_filtered['보증금'] <= st.session_state.max_dep)]
-        if '월차임' in df_filtered.columns:
-            df_filtered = df_filtered[(df_filtered['월차임'] >= st.session_state.min_rent) & (df_filtered['월차임'] <= st.session_state.max_rent)]
-        if '면적' in df_filtered.columns:
-            df_filtered = df_filtered[(df_filtered['면적'] >= st.session_state.min_area) & (df_filtered['면적'] <= st.session_state.max_area)]
-        if '관리비' in df_filtered.columns:
-            df_filtered = df_filtered[(df_filtered['관리비'] >= st.session_state.min_man) & (df_filtered['관리비'] <= st.session_state.max_man)]
-        if '권리금' in df_filtered.columns:
-            if is_no_kwon:
-                df_filtered = df_filtered[df_filtered['권리금'] == 0]
+        # [매매 모드]
+        with r1:
+            st.markdown("##### 💰 매매가 (만원)")
+            max_price = get_max_if_exists("매매가")
+            if max_price is not None:
+                c_a, c_b = st.columns(2)
+                c_a.number_input("최소", step=1000.0, key='min_price', value=sess('min_price', 0.0))
+                c_b.number_input("최대", step=1000.0, key='max_price', value=sess('max_price', max_price))
             else:
-                df_filtered = df_filtered[(df_filtered['권리금'] >= st.session_state.min_kwon) & (df_filtered['권리금'] <= st.session_state.max_kwon)]
+                st.caption("🚫 매매가 정보 없음")
 
-    # 공통 층수 필터
-    if '층' in df_filtered.columns:
-         df_filtered = df_filtered[(df_filtered['층'] >= st.session_state.min_fl) & (df_filtered['층'] <= st.session_state.max_fl)]
+        with r2:
+            st.markdown("##### 📊 수익률(%)")
+            max_yield = get_max_if_exists("수익률")
+            if max_yield is not None:
+                c_a, c_b = st.columns(2)
+                c_a.number_input("최소", step=0.1, key='min_yield', value=sess('min_yield', 0.0))
+                c_b.number_input("최대", step=0.1, key='max_yield', value=sess('max_yield', 20.0))
+            else:
+                st.caption("🚫 수익률 정보 없음")
 
-    # ---------------------------------------------------------
-    # [핵심] 슈퍼 옴니 서치 (Super Omni Search)
-    # ---------------------------------------------------------
-    search_val = st.session_state.search_keyword.strip()
-    if search_val:
-        search_scope = df_filtered.drop(columns=['선택'], errors='ignore')
-        # 모든 데이터를 문자로 변환 -> 하나로 합침 -> 검색
-        mask = search_scope.fillna("").astype(str).apply(lambda x: ' '.join(x), axis=1).str.contains(search_val, case=False)
-        df_filtered = df_filtered[mask]
+        with r3:
+            st.markdown("##### 📐 대지/연면적 (평)")
+            max_land = get_max_if_exists("대지면적")
+            max_total = get_max_if_exists("연면적")
+            
+            c_a, c_b = st.columns(2)
+            if max_land is not None:
+                c_a.number_input("대지 최소", step=1.0, key='min_land', value=sess('min_land', 0.0))
+            else: c_a.caption("-")
+                
+            if max_total is not None:
+                c_b.number_input("연면 최소", step=1.0, key='min_total', value=sess('min_total', 0.0))
+            else: c_b.caption("-")
 
-    # ---------------------------------------------------------
-    # [결과 출력 & 리스트 뷰]
-    # ---------------------------------------------------------
-    if len(df_filtered) == 0:
-        st.warning(f"🔍 '{st.session_state.current_sheet}' 시트에서 조건에 맞는 매물을 찾을 수 없습니다.")
     else:
-        st.info(f"📋 **{st.session_state.current_sheet}** 검색 결과: **{len(df_filtered)}**건 (전체 {len(df_main)}건)")
-    
-    # 리스트 수정 방지 (Read-only)
-    disabled_cols = [col for col in df_filtered.columns if col != '선택']
-    
-    # 키 충돌 방지를 위한 유니크 키 생성
-    editor_key = f"editor_{st.session_state.current_sheet}"
-    
-    #  - 데이터 에디터 시각화
-    st.data_editor(
-        df_filtered,
-        disabled=disabled_cols,
-        use_container_width=True,
-        hide_index=True,
-        height=600,
-        column_config={
-            "선택": st.column_config.CheckboxColumn(width="small"),
-            "매매가": st.column_config.NumberColumn("매매가(만)", format="%d"),
-            "보증금": st.column_config.NumberColumn("보증금(만)", format="%d"),
-            "월차임": st.column_config.NumberColumn("월세(만)", format="%d"),
-            "권리금": st.column_config.NumberColumn("권리금(만)", format="%d"),
-            "면적": st.column_config.NumberColumn("면적(평)", format="%.1f"),
-            "대지면적": st.column_config.NumberColumn("대지(평)", format="%.1f"),
-            "연면적": st.column_config.NumberColumn("연면(평)", format="%.1f"),
-            "수익률": st.column_config.NumberColumn("수익률", format="%.2f%%"),
-            "내용": st.column_config.TextColumn("특징", width="large"),
-        },
-        key=editor_key
-    )
+        # [임대 모드]
+        with r1:
+            st.markdown("##### 💰 보증금/월세 (만원)")
+            max_dep = get_max_if_exists("보증금")
+            max_rent = get_max_if_exists("월차임")
+            
+            c_a, c_b = st.columns(2)
+            if max_dep is not None:
+                c_a.number_input("보증금 최소", step=500.0, key='min_dep', value=sess('min_dep', 0.0))
+            else: c_a.caption("보증금X")
+                
+            if max_rent is not None:
+                c_b.number_input("월세 최소", step=10.0, key='min_rent', value=sess('min_rent', 0.0))
+            else: c_b.caption("월세X")
 
-except Exception as e:
-    st.error(f"🚨 시스템 에러: {e}")
-    st.write("잠시 후 다시 시도하거나, [검색 조건 초기화] 버튼을 눌러주세요.")
+        with r2:
+            st.markdown("##### 🔑 권리금/관리비")
+            is_no_kwon = st.checkbox("무권리만", key='is_no_kwon')
+            max_kwon = get_max_if_exists("권리금")
+            max_man = get_max_if_exists("관리비")
+            
+            c_a, c_b = st.columns(2)
+            if max_kwon is not None:
+                c_a.number_input("권리금 최소", step=100.0, key='min_kwon', disabled=is_no_kwon, value=sess('min_kwon', 0.0))
+            else: c_a.caption("권리금X")
+            
+            if max_man is not None:
+                c_b.number_input("관리비 최소", step=5.0, key='min_man', value=sess('min_man', 0.0))
+            else: c_b.caption("관리비X")
+
+        with r3:
+            st.markdown("##### 📐 면적 (평)")
+            max_area = get_max_if_exists("면적")
+            if max_area is not None:
+                c_a, c_b = st.columns(2)
+                c_a.number_input("면적 최소", step=5.0, key='min_area', value=sess('min_area', 0.0))
+                c_b.number_input("면적 최대", step=5.0, key='max_area', value=sess('max_area', max_area))
+            else:
+                st.caption("🚫 면적 정보 없음")
+
+# ---------------------------------------------------------
+# [필터링 로직: 존재하는 컬럼만 안전하게 필터링]
+# ---------------------------------------------------------
+df_filtered = df_main.copy()
+
+# 1. 지역
+if '지역_구' in df_filtered.columns and sel_gu != "전체":
+    df_filtered = df_filtered[df_filtered['지역_구'] == sel_gu]
+if '지역_동' in df_filtered.columns and sel_dong != "전체":
+    df_filtered = df_filtered[df_filtered['지역_동'] == sel_dong]
+
+# 2. 번지
+if '번지' in df_filtered.columns and st.session_state.exact_bunji:
+    df_filtered = df_filtered[df_filtered['번지'].astype(str).str.strip() == st.session_state.exact_bunji.strip()]
+
+# 3. 수치 필터 (키 존재 여부 및 컬럼 존재 여부 동시 확인)
+if is_sale_mode:
+    if '매매가' in df_filtered.columns and 'min_price' in st.session_state:
+        df_filtered = df_filtered[(df_filtered['매매가'] >= st.session_state.min_price) & (df_filtered['매매가'] <= st.session_state.max_price)]
+    if '수익률' in df_filtered.columns and 'min_yield' in st.session_state:
+        df_filtered = df_filtered[(df_filtered['수익률'] >= st.session_state.min_yield)] # 수익률은 최소값 이상만
+    if '대지면적' in df_filtered.columns and 'min_land' in st.session_state:
+        df_filtered = df_filtered[(df_filtered['대지면적'] >= st.session_state.min_land)]
+    if '연면적' in df_filtered.columns and 'min_total' in st.session_state:
+        df_filtered = df_filtered[(df_filtered['연면적'] >= st.session_state.min_total)]
+else:
+    if '보증금' in df_filtered.columns and 'min_dep' in st.session_state:
+        df_filtered = df_filtered[(df_filtered['보증금'] >= st.session_state.min_dep) & (df_filtered['보증금'] <= st.session_state.max_dep)]
+    if '월차임' in df_filtered.columns and 'min_rent' in st.session_state:
+        df_filtered = df_filtered[(df_filtered['월차임'] >= st.session_state.min_rent)]
+    if '면적' in df_filtered.columns and 'min_area' in st.session_state:
+        df_filtered = df_filtered[(df_filtered['면적'] >= st.session_state.min_area) & (df_filtered['면적'] <= st.session_state.max_area)]
+    if '관리비' in df_filtered.columns and 'min_man' in st.session_state:
+        df_filtered = df_filtered[(df_filtered['관리비'] >= st.session_state.min_man)]
+    if '권리금' in df_filtered.columns and 'min_kwon' in st.session_state:
+        if st.session_state.is_no_kwon:
+            df_filtered = df_filtered[df_filtered['권리금'] == 0]
+        else:
+            df_filtered = df_filtered[(df_filtered['권리금'] >= st.session_state.min_kwon)]
+
+# ---------------------------------------------------------
+# [핵심] 슈퍼 옴니 서치 (Super Omni Search)
+# ---------------------------------------------------------
+search_val = st.session_state.search_keyword.strip()
+if search_val:
+    # '선택' 컬럼 제외
+    search_scope = df_filtered.drop(columns=['선택'], errors='ignore')
+    
+    # 전체 데이터를 문자로 변환 -> 검색
+    mask = search_scope.fillna("").astype(str).apply(lambda x: ' '.join(x), axis=1).str.contains(search_val, case=False)
+    df_filtered = df_filtered[mask]
+
+# ---------------------------------------------------------
+# [결과 출력]
+# ---------------------------------------------------------
+if len(df_filtered) == 0:
+    st.warning("🔍 검색 결과가 없습니다.")
+else:
+    st.info(f"📋 **{st.session_state.current_sheet}** 검색 결과: **{len(df_filtered)}**건 (전체 {len(df_main)}건)")
+
+# 리스트 잠금 (Read-only)
+disabled_cols = [c for c in df_filtered.columns if c != '선택']
+
+# 에디터 키 (시트별 유니크)
+editor_key = f"editor_{st.session_state.current_sheet}"
+
+# 동적 컬럼 설정 (있는 것만 보여줌)
+col_cfg = {"선택": st.column_config.CheckboxColumn(width="small")}
+
+# 존재하면 설정 추가, 없으면 무시
+if "매매가" in df_filtered.columns: col_cfg["매매가"] = st.column_config.NumberColumn("매매가(만)", format="%d")
+if "보증금" in df_filtered.columns: col_cfg["보증금"] = st.column_config.NumberColumn("보증금(만)", format="%d")
+if "월차임" in df_filtered.columns: col_cfg["월차임"] = st.column_config.NumberColumn("월세(만)", format="%d")
+if "권리금" in df_filtered.columns: col_cfg["권리금"] = st.column_config.NumberColumn("권리금(만)", format="%d")
+if "면적" in df_filtered.columns: col_cfg["면적"] = st.column_config.NumberColumn("면적(평)", format="%.1f")
+if "대지면적" in df_filtered.columns: col_cfg["대지면적"] = st.column_config.NumberColumn("대지(평)", format="%.1f")
+if "연면적" in df_filtered.columns: col_cfg["연면적"] = st.column_config.NumberColumn("연면(평)", format="%.1f")
+if "수익률" in df_filtered.columns: col_cfg["수익률"] = st.column_config.NumberColumn("수익률", format="%.2f%%")
+if "내용" in df_filtered.columns: col_cfg["내용"] = st.column_config.TextColumn("특징", width="large")
+
+st.data_editor(
+    df_filtered,
+    disabled=disabled_cols,
+    use_container_width=True,
+    hide_index=True,
+    height=600,
+    column_config=col_cfg,
+    key=editor_key
+)
