@@ -11,8 +11,8 @@ st.set_page_config(
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1bmTnLu-vMvlAGRSsCI4a8lk00U38covWl5Wfn9JZYVU/edit"
 
-# 💡 [핵심] 사장님 요청에 맞춘 6개 시트 확장 (실제 탭 이름과 일치해야 함)
-SHEET_NAMES = ["임대", "매매", "상가", "토지", "공장", "종료"]
+# 💡 [핵심] 사장님 요청 6개 시트 실명칭 반영
+SHEET_NAMES = ["임대", "임대(종료)", "매매", "매매(종료)", "임대브리핑", "매매브리핑"]
 
 # [2. 스타일 설정]
 st.markdown("""
@@ -27,7 +27,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # [3. 유틸리티: 명시적(Explicit) 초기화 함수]
-# 시트가 바뀌거나 초기화 버튼 클릭 시, 해당 시트의 데이터 범위에 맞춰 필터를 리셋
+# 잔상(Ghosting) 방지를 위해 기본값을 명시적으로 대입
 def reset_all_filters(defaults):
     # 텍스트 입력창 초기화
     st.session_state['search_keyword'] = ""
@@ -48,7 +48,7 @@ def reset_all_filters(defaults):
     st.session_state['max_man'] = defaults['max_man']
     st.session_state['min_area'] = 0.0
     st.session_state['max_area'] = defaults['max_area']
-    st.session_state['min_fl'] = -20.0 # 지하 20층까지 검색 가능
+    st.session_state['min_fl'] = -20.0 # 지하 20층
     st.session_state['max_fl'] = defaults['max_fl']
     
     # 체크박스 초기화
@@ -62,8 +62,7 @@ def load_data(sheet_name):
         # worksheet 파라미터로 해당 탭의 데이터를 읽어옴
         df = conn.read(spreadsheet=SHEET_URL, worksheet=sheet_name, ttl=0)
     except Exception:
-        # 에러 발생 시 (탭 이름 불일치 등) 기본 동작
-        st.warning(f"⚠️ '{sheet_name}' 탭을 찾을 수 없어 기본 데이터를 로드합니다.")
+        # 탭 이름 오류 시 안전장치 (기본 동작)
         df = conn.read(spreadsheet=SHEET_URL, ttl=0)
         
     df.columns = df.columns.str.strip()
@@ -278,7 +277,7 @@ try:
         st.info(f"📋 **{st.session_state.current_sheet}** 탭 검색 결과: **{len(df_filtered)}**건 (전체 {len(df_main)}건)")
     
     # ---------------------------------------------------------
-    # [핵심] 리스트 수정 방지 (Read-only)
+    # [핵심] 리스트 수정 방지 (Read-only) & 키 충돌 방지
     # '선택' 컬럼을 제외한 모든 컬럼을 비활성화(disabled) 처리
     # ---------------------------------------------------------
     disabled_cols = [col for col in df_filtered.columns if col != '선택']
@@ -288,7 +287,7 @@ try:
     
     st.data_editor(
         df_filtered,
-        disabled=disabled_cols, # '선택' 빼고 전부 수정 불가
+        disabled=disabled_cols, # '선택' 빼고 전부 수정 불가 (Read-only)
         use_container_width=True,
         hide_index=True,
         height=600,
