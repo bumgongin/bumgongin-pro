@@ -17,8 +17,7 @@ st.set_page_config(
 # ------------------------------------------
 # [필수] API 및 환경 상수
 # ------------------------------------------
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1DqS_c2FFhsQq23ydEV0fkihPF0lwcyUoQTlkJNGLgPY/edit"
-
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1bmTnLu-vMvlAGRSsCI4a8lk00U38covWl5Wfn9JZYVU/edit"
 # ------------------------------------------
 # [스타일] 모바일 반응형 & 경고 차단 CSS
 # ------------------------------------------
@@ -272,4 +271,5 @@ st.warning("🚧 [이동/복사/삭제 트랜잭션 모듈]이 조립될 위치�
 # 5-4. [MODULE: DETAIL_VIEW] - 자리 잡기
 st.divider()
 st.subheader("📝 상세 정보 및 지도")
+
 st.warning("🚧 [네이버 지도 및 상세 수정 모듈]이 조립될 위치입니다.")
