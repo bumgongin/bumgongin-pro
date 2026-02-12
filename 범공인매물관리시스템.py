@@ -1,9 +1,10 @@
 import streamlit as st
 import pandas as pd
+import urllib.parse
 
 # [1. 시스템 설정]
 st.set_page_config(
-    page_title="범공인 Pro (v24.16 Final)",
+    page_title="범공인 Pro (v24.16.1)",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -33,7 +34,7 @@ SHEET_GIDS = {
 }
 SHEET_NAMES = list(SHEET_GIDS.keys())
 
-# [3. 데이터 로드 엔진 (GID 기반 CSV 추출)]
+# [3. 데이터 로드 엔진 (GID 기반 CSV 추출 + 정직한 매핑)]
 @st.cache_data(ttl=600) 
 def load_data(sheet_name):
     gid = SHEET_GIDS.get(sheet_name)
@@ -65,19 +66,18 @@ def load_data(sheet_name):
         "층": ["해당층", "층", "지상층"],
         "내용": ["매물특징", "특징", "비고", "내용"],
         "번지": ["지역_번지", "번지", "지번"],
-        "구분": ["매물구분", "구분"],
+        "구분": ["매물구분", "구분", "용도"],
         "건물명": ["건물명", "빌딩명"]
     }
 
     for standard, aliases in synonym_map.items():
         for alias in aliases:
-            # 공백 제거된 버전도 확인
             clean_alias = alias.replace(' ', '')
             if clean_alias in df.columns:
                 df.rename(columns={clean_alias: standard}, inplace=True)
                 break
 
-    # [숫자형 변환] 존재하는 컬럼만 안전하게 변환
+    # [숫자형 변환] 존재하는 컬럼만 안전하게 변환 (가짜 데이터 생성 X)
     numeric_candidates = [
         "보증금", "월차임", "권리금", "관리비", "면적", "층", 
         "매매가", "수익률", "대지면적", "연면적"
@@ -87,7 +87,7 @@ def load_data(sheet_name):
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
     
-    df = df.fillna("") # 나머지 결측치는 빈 문자열
+    df = df.fillna("") # 나머지 텍스트 결측치는 빈 문자열
 
     # '선택' 컬럼 초기화
     if '선택' in df.columns: df = df.drop(columns=['선택'])
@@ -112,7 +112,7 @@ with st.sidebar:
         
     selected_sheet = st.selectbox("데이터 시트", SHEET_NAMES, index=curr_idx)
     
-    # 시트 변경 감지
+    # 시트 변경 감지 -> 즉시 리프레시
     if selected_sheet != st.session_state.current_sheet:
         st.session_state.current_sheet = selected_sheet
         st.cache_data.clear()
@@ -153,38 +153,54 @@ def sess(key, default):
 # [모듈 2: 조건부 필터 UI]
 # ---------------------------------------------------------
 with st.expander("🔍 정밀 검색 및 제어판 (열기/닫기)", expanded=True):
-    # 1. 공통 검색
-    c1, c2, c3, c4 = st.columns([1.5, 1, 1, 1])
-    with c1: st.text_input("통합 검색", key='search_keyword', placeholder="내용, 건물명, 번지 등 전체 검색")
-    with c2: st.text_input("번지 정밀검색", key='exact_bunji', placeholder="예: 50-1")
+    # 1. 상단 검색 및 구분 필터 (레이아웃 조정: 5칸)
+    c1, c2, c3, c4, c5 = st.columns([1.5, 1, 1, 1, 1])
     
-    # 지역 선택 (안전장치 포함)
-    unique_gu = ["전체"]
-    if '지역_구' in df_main.columns:
-        unique_gu += sorted(df_main['지역_구'].astype(str).unique().tolist())
+    with c1: 
+        st.text_input("통합 검색", key='search_keyword', placeholder="전체 항목 검색")
+    with c2: 
+        st.text_input("번지 정밀검색", key='exact_bunji', placeholder="예: 50-1")
     
-    with c3: 
-        current_gu_val = sess('selected_gu', '전체')
-        if current_gu_val not in unique_gu:
-            st.session_state.selected_gu = "전체"
-        sel_gu = st.selectbox("지역 (구)", unique_gu, key='selected_gu')
-        
-    unique_dong = ["전체"]
-    if '지역_동' in df_main.columns:
-        if sel_gu == "전체":
-            unique_dong += sorted(df_main['지역_동'].astype(str).unique().tolist())
-        else:
-            unique_dong += sorted(df_main[df_main['지역_구'] == sel_gu]['지역_동'].astype(str).unique().tolist())
+    # [NEW] 구분 필터 (상가, 사무실 등)
+    with c3:
+        unique_cat = ["전체"]
+        if '구분' in df_main.columns:
+            unique_cat += sorted(df_main['구분'].astype(str).unique().tolist())
             
+        if 'selected_cat' not in st.session_state: st.session_state.selected_cat = "전체"
+        
+        # 값이 바뀌었을 때 리셋 방지 로직
+        current_cat = st.session_state.selected_cat
+        if current_cat not in unique_cat: current_cat = "전체"
+            
+        sel_cat = st.selectbox("구분", unique_cat, key='selected_cat', index=unique_cat.index(current_cat))
+
+    # 지역 (구)
     with c4: 
-        current_dong_val = sess('selected_dong', '전체')
-        if current_dong_val not in unique_dong:
-            st.session_state.selected_dong = "전체"
-        sel_dong = st.selectbox("지역 (동)", unique_dong, key='selected_dong')
+        unique_gu = ["전체"]
+        if '지역_구' in df_main.columns:
+            unique_gu += sorted(df_main['지역_구'].astype(str).unique().tolist())
+            
+        current_gu = sess('selected_gu', '전체')
+        if current_gu not in unique_gu: current_gu = "전체"
+        sel_gu = st.selectbox("지역 (구)", unique_gu, key='selected_gu', index=unique_gu.index(current_gu))
+    
+    # 지역 (동)
+    with c5:
+        unique_dong = ["전체"]
+        if '지역_동' in df_main.columns:
+            if sel_gu == "전체":
+                unique_dong += sorted(df_main['지역_동'].astype(str).unique().tolist())
+            else:
+                unique_dong += sorted(df_main[df_main['지역_구'] == sel_gu]['지역_동'].astype(str).unique().tolist())
+        
+        current_dong = sess('selected_dong', '전체')
+        if current_dong not in unique_dong: current_dong = "전체"
+        sel_dong = st.selectbox("지역 (동)", unique_dong, key='selected_dong', index=unique_dong.index(current_dong))
 
     st.divider()
 
-    # 2. 수치 필터
+    # 2. 수치 필터 (매매 vs 임대) - 데이터 무결성 보장 (없는 건 안 보여줌)
     r1, r2, r3 = st.columns(3)
     LIMIT_HUGE = 100000000.0 
 
@@ -216,8 +232,8 @@ with st.expander("🔍 정밀 검색 및 제어판 (열기/닫기)", expanded=Tr
             c_a, c_b = st.columns(2)
             if max_land is not None:
                 c_a.number_input("대지 최소", step=1.0, key='min_land', value=sess('min_land', 0.0))
-            else: c_a.caption("-")
-            if max_land is not None: # 최대값 추가
+            else: c_a.caption("대지X")
+            if max_land is not None:
                 c_b.number_input("대지 최대", max_value=1000000.0, step=1.0, key='max_land', value=sess('max_land', max_land))
             else: c_b.caption("-")
             
@@ -226,7 +242,7 @@ with st.expander("🔍 정밀 검색 및 제어판 (열기/닫기)", expanded=Tr
             if max_total is not None:
                 c_c.number_input("연면 최소", step=1.0, key='min_total', value=sess('min_total', 0.0))
                 c_d.number_input("연면 최대", max_value=1000000.0, step=1.0, key='max_total', value=sess('max_total', max_total))
-            else: c_c.caption("-")
+            else: c_c.caption("연면적X")
 
     else:
         # [임대 모드 UI]
@@ -238,13 +254,13 @@ with st.expander("🔍 정밀 검색 및 제어판 (열기/닫기)", expanded=Tr
             c_a, c_b = st.columns(2)
             if max_dep is not None:
                 c_a.number_input("보증금 최소", step=500.0, key='min_dep', value=sess('min_dep', 0.0))
-                c_b.number_input("보증금 최대", max_value=LIMIT_HUGE, step=500.0, key='max_dep', value=sess('max_dep', max_dep)) # Max 추가
+                c_b.number_input("보증금 최대", max_value=LIMIT_HUGE, step=500.0, key='max_dep', value=sess('max_dep', max_dep))
             else: c_a.caption("보증금X")
                 
-            c_c, c_d = st.columns(2) # 월세 줄바꿈
+            c_c, c_d = st.columns(2)
             if max_rent is not None:
                 c_c.number_input("월세 최소", step=10.0, key='min_rent', value=sess('min_rent', 0.0))
-                c_d.number_input("월세 최대", max_value=1000000.0, step=10.0, key='max_rent', value=sess('max_rent', max_rent)) # Max 추가
+                c_d.number_input("월세 최대", max_value=1000000.0, step=10.0, key='max_rent', value=sess('max_rent', max_rent))
             else: c_c.caption("월세X")
 
         with r2:
@@ -256,13 +272,13 @@ with st.expander("🔍 정밀 검색 및 제어판 (열기/닫기)", expanded=Tr
             c_a, c_b = st.columns(2)
             if max_kwon is not None:
                 c_a.number_input("권리금 최소", step=100.0, key='min_kwon', disabled=is_no_kwon, value=sess('min_kwon', 0.0))
-                c_b.number_input("권리금 최대", max_value=LIMIT_HUGE, step=100.0, key='max_kwon', disabled=is_no_kwon, value=sess('max_kwon', max_kwon)) # Max
+                c_b.number_input("권리금 최대", max_value=LIMIT_HUGE, step=100.0, key='max_kwon', disabled=is_no_kwon, value=sess('max_kwon', max_kwon))
             else: c_a.caption("권리금X")
             
             c_c, c_d = st.columns(2)
             if max_man is not None:
                 c_c.number_input("관리비 최소", step=5.0, key='min_man', value=sess('min_man', 0.0))
-                c_d.number_input("관리비 최대", max_value=1000000.0, step=5.0, key='max_man', value=sess('max_man', max_man)) # Max
+                c_d.number_input("관리비 최대", max_value=1000000.0, step=5.0, key='max_man', value=sess('max_man', max_man))
             else: c_c.caption("관리비X")
 
         with r3:
@@ -275,21 +291,25 @@ with st.expander("🔍 정밀 검색 및 제어판 (열기/닫기)", expanded=Tr
             else: st.caption("🚫 면적 정보 없음")
 
 # ---------------------------------------------------------
-# [필터링 로직]
+# [필터링 로직: 안전성 최우선]
 # ---------------------------------------------------------
 df_filtered = df_main.copy()
 
-# 1. 지역
+# 1. 구분 (NEW)
+if '구분' in df_filtered.columns and sel_cat != "전체":
+    df_filtered = df_filtered[df_filtered['구분'] == sel_cat]
+
+# 2. 지역
 if '지역_구' in df_filtered.columns and sel_gu != "전체":
     df_filtered = df_filtered[df_filtered['지역_구'] == sel_gu]
 if '지역_동' in df_filtered.columns and sel_dong != "전체":
     df_filtered = df_filtered[df_filtered['지역_동'] == sel_dong]
 
-# 2. 번지
+# 3. 번지
 if '번지' in df_filtered.columns and st.session_state.exact_bunji:
     df_filtered = df_filtered[df_filtered['번지'].astype(str).str.strip() == st.session_state.exact_bunji.strip()]
 
-# 3. 수치 필터
+# 4. 수치 필터 (매매/임대 분기 + 컬럼 존재 체크)
 if is_sale_mode:
     if '매매가' in df_filtered.columns and 'min_price' in st.session_state:
         df_filtered = df_filtered[(df_filtered['매매가'] >= st.session_state.min_price) & (df_filtered['매매가'] <= st.session_state.max_price)]
@@ -315,7 +335,7 @@ else:
             df_filtered = df_filtered[(df_filtered['권리금'] >= st.session_state.min_kwon) & (df_filtered['권리금'] <= st.session_state.max_kwon)]
 
 # ---------------------------------------------------------
-# [핵심] 슈퍼 옴니 서치
+# [핵심] 슈퍼 옴니 서치 (Super Omni Search)
 # ---------------------------------------------------------
 search_val = st.session_state.search_keyword.strip()
 if search_val:
@@ -335,7 +355,7 @@ else:
 disabled_cols = [c for c in df_filtered.columns if c != '선택']
 editor_key = f"editor_{st.session_state.current_sheet}"
 
-# 동적 컬럼 포맷
+# 동적 컬럼 포맷 설정
 col_cfg = {"선택": st.column_config.CheckboxColumn(width="small")}
 if "매매가" in df_filtered.columns: col_cfg["매매가"] = st.column_config.NumberColumn("매매가(만)", format="%d")
 if "보증금" in df_filtered.columns: col_cfg["보증금"] = st.column_config.NumberColumn("보증금(만)", format="%d")
@@ -347,7 +367,6 @@ if "연면적" in df_filtered.columns: col_cfg["연면적"] = st.column_config.N
 if "수익률" in df_filtered.columns: col_cfg["수익률"] = st.column_config.NumberColumn("수익률", format="%.2f%%")
 if "내용" in df_filtered.columns: col_cfg["내용"] = st.column_config.TextColumn("특징", width="large")
 
-# 
 st.data_editor(
     df_filtered,
     disabled=disabled_cols,
