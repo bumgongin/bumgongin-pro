@@ -1,18 +1,19 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.22.2)
-# Feature: Universal Action Bar & Hybrid View
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.22.3)
+# Feature: 3-Layer Slim Card & Pagination
 
 import streamlit as st
 import pandas as pd
 import time
+import math
 import core_engine as engine  # [Core Engine v24.21.2]
-import styles                 # [Style Module v24.22.2]
+import styles                 # [Style Module v24.22.3]
 
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
 st.set_page_config(
-    page_title="범공인 Pro (v24.22.2)",
+    page_title="범공인 Pro (v24.22.3)",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -20,23 +21,22 @@ st.set_page_config(
 # 스타일 적용
 styles.apply_custom_css()
 
-# 엔진 상태 초기화
+# 상태 초기화
 if 'current_sheet' not in st.session_state: 
     st.session_state.current_sheet = engine.SHEET_NAMES[0]
 if 'action_status' not in st.session_state: 
     st.session_state.action_status = None 
-    
-# 뷰 모드 초기화
 if 'view_mode' not in st.session_state:
     st.session_state.view_mode = '🗂️ 카드 모드'
-
-# 스마트 필터 토글 상태 초기화
+if 'page_num' not in st.session_state:
+    st.session_state.page_num = 1
+    
+# 스마트 필터
 if 'show_cat_search' not in st.session_state: st.session_state.show_cat_search = False
 if 'show_gu_search' not in st.session_state: st.session_state.show_gu_search = False
 if 'show_dong_search' not in st.session_state: st.session_state.show_dong_search = False
     
-engine.initialize_search_state() # 필터 변수 초기화
-
+engine.initialize_search_state() # 필터 변수
 def sess(key): return st.session_state[key]
 
 # ==============================================================================
@@ -56,23 +56,23 @@ with st.sidebar:
             st.session_state.current_sheet = selected_sheet
             st.session_state.action_status = None 
             st.session_state.editor_key_version += 1
+            st.session_state.page_num = 1 # 페이지 초기화
             if 'df_main' in st.session_state: del st.session_state.df_main
             st.cache_data.clear()
             st.rerun()
 
-    # [데이터 로드 & 세션 고정]
+    # 데이터 로드
     if 'df_main' not in st.session_state:
         with st.spinner("데이터 로드 중..."):
             loaded_df = engine.load_sheet_data(st.session_state.current_sheet)
             if loaded_df is not None:
                 st.session_state.df_main = loaded_df
             else:
-                st.error("🚨 데이터 로드 실패. GID 확인 필요.")
+                st.error("🚨 데이터 로드 실패.")
                 st.stop()
-    
     df_main = st.session_state.df_main
 
-    st.write("") # 간격
+    st.write("") 
 
     # 2. 텍스트 검색
     with st.container(border=True):
@@ -87,35 +87,32 @@ with st.sidebar:
         st.markdown("##### 🏷️ 항목 필터링")
         
         # [구분]
-        c_cat_L, c_cat_B = st.columns([4, 1])
-        c_cat_L.markdown("구분")
-        if c_cat_B.button("🔍", key="btn_cat_search"):
-            st.session_state.show_cat_search = not st.session_state.show_cat_search
-            
+        c1, c2 = st.columns([4, 1])
+        c1.markdown("구분")
+        if c2.button("🔍", key="btn_cat"): st.session_state.show_cat_search = not st.session_state.show_cat_search
+        
         unique_cat = sorted(df_main['구분'].astype(str).unique().tolist()) if '구분' in df_main.columns else []
         if st.session_state.show_cat_search:
-            cat_term = st.text_input("구분 검색", key="cat_search_term", placeholder="예: 상가")
-            if cat_term: unique_cat = [c for c in unique_cat if cat_term in c]
+            term = st.text_input("구분 검색", key="cat_term")
+            if term: unique_cat = [x for x in unique_cat if term in x]
         st.multiselect("구분 선택", unique_cat, key='selected_cat', placeholder="전체 선택", label_visibility="collapsed")
 
         # [지역 (구)]
-        c_gu_L, c_gu_B = st.columns([4, 1])
-        c_gu_L.markdown("지역 (구)")
-        if c_gu_B.button("🔍", key="btn_gu_search"):
-            st.session_state.show_gu_search = not st.session_state.show_gu_search
-            
+        c3, c4 = st.columns([4, 1])
+        c3.markdown("지역 (구)")
+        if c4.button("🔍", key="btn_gu"): st.session_state.show_gu_search = not st.session_state.show_gu_search
+        
         unique_gu = sorted(df_main['지역_구'].astype(str).unique().tolist()) if '지역_구' in df_main.columns else []
         if st.session_state.show_gu_search:
-            gu_term = st.text_input("구 검색", key="gu_search_term", placeholder="예: 강남구")
-            if gu_term: unique_gu = [g for g in unique_gu if gu_term in g]
+            term = st.text_input("구 검색", key="gu_term")
+            if term: unique_gu = [x for x in unique_gu if term in x]
         st.multiselect("지역 (구) 선택", unique_gu, key='selected_gu', placeholder="전체 선택", label_visibility="collapsed")
         
         # [지역 (동)]
-        c_dong_L, c_dong_B = st.columns([4, 1])
-        c_dong_L.markdown("지역 (동)")
-        if c_dong_B.button("🔍", key="btn_dong_search"):
-            st.session_state.show_dong_search = not st.session_state.show_dong_search
-            
+        c5, c6 = st.columns([4, 1])
+        c5.markdown("지역 (동)")
+        if c6.button("🔍", key="btn_dong"): st.session_state.show_dong_search = not st.session_state.show_dong_search
+        
         unique_dong = []
         if '지역_동' in df_main.columns:
             if st.session_state.selected_gu:
@@ -123,8 +120,8 @@ with st.sidebar:
             else:
                 unique_dong = sorted(df_main['지역_동'].astype(str).unique().tolist())
         if st.session_state.show_dong_search:
-            dong_term = st.text_input("동 검색", key="dong_search_term", placeholder="예: 역삼동")
-            if dong_term: unique_dong = [d for d in unique_dong if dong_term in d]
+            term = st.text_input("동 검색", key="dong_term")
+            if term: unique_dong = [x for x in unique_dong if term in x]
         st.multiselect("지역 (동) 선택", unique_dong, key='selected_dong', placeholder="전체 선택", label_visibility="collapsed")
 
     st.write("")
@@ -140,7 +137,6 @@ with st.sidebar:
             c1, c2 = st.columns(2)
             c1.number_input("최소", step=1000.0, key='min_price', value=sess('min_price'))
             c2.number_input("최대", step=1000.0, key='max_price', value=sess('max_price'), max_value=MAX_PRICE)
-            
             st.caption("🅱️ 대지면적 (평)")
             c3, c4 = st.columns(2)
             c3.number_input("최소", step=1.0, key='min_land', value=sess('min_land'))
@@ -150,12 +146,10 @@ with st.sidebar:
             c1, c2 = st.columns(2)
             c1.number_input("최소", step=500.0, key='min_dep', value=sess('min_dep'))
             c2.number_input("최대", step=500.0, key='max_dep', value=sess('max_dep'), max_value=MAX_PRICE)
-            
             st.caption("🅱️ 월세 (만원)")
             c3, c4 = st.columns(2)
             c3.number_input("최소", step=10.0, key='min_rent', value=sess('min_rent'))
             c4.number_input("최대", step=10.0, key='max_rent', value=sess('max_rent'), max_value=MAX_PRICE)
-            
             st.caption("©️ 권리금 (만원)")
             c7, c8 = st.columns(2)
             c7.number_input("최소", step=100.0, key='min_kwon', value=sess('min_kwon'))
@@ -163,14 +157,14 @@ with st.sidebar:
 
         st.divider()
         st.caption("📐 면적 (평)")
-        cm1, cm2 = st.columns(2)
-        cm1.number_input("최소", step=5.0, key='min_area', value=sess('min_area'))
-        cm2.number_input("최대", step=5.0, key='max_area', value=sess('max_area'), max_value=MAX_AREA)
+        c1, c2 = st.columns(2)
+        c1.number_input("최소", step=5.0, key='min_area', value=sess('min_area'))
+        c2.number_input("최대", step=5.0, key='max_area', value=sess('max_area'), max_value=MAX_AREA)
 
-        st.caption("🏢 층수 (기본값 0.0)")
-        cf1, cf2 = st.columns(2)
-        cf1.number_input("최저", step=1.0, key='min_fl', value=0.0, min_value=-10.0)
-        cf2.number_input("최고", step=1.0, key='max_fl', value=100.0, max_value=200.0)
+        st.caption("🏢 층수")
+        c1, c2 = st.columns(2)
+        c1.number_input("최저", step=1.0, key='min_fl', value=0.0, min_value=-10.0)
+        c2.number_input("최고", step=1.0, key='max_fl', value=100.0, max_value=200.0)
 
         st.caption("☑️ 기타")
         st.checkbox("무권리만 보기", key='is_no_kwon')
@@ -234,71 +228,97 @@ def main_list_view():
     if '층' in df_filtered.columns:
         df_filtered = df_filtered[(df_filtered['층'] >= st.session_state.min_fl) & (df_filtered['층'] <= st.session_state.max_fl)]
 
-    # --- RESULT INFO ---
-    if len(df_filtered) == 0:
+    # --- RESULT INFO & PAGINATION ---
+    total_count = len(df_filtered)
+    if total_count == 0:
         st.warning("🔍 검색 결과가 없습니다.")
         return
-    st.info(f"📋 검색 결과: **{len(df_filtered)}**건")
+
+    ITEMS_PER_PAGE = 50
+    total_pages = math.ceil(total_count / ITEMS_PER_PAGE)
+    
+    # 페이지네이션 상태 제어
+    if st.session_state.page_num > total_pages: st.session_state.page_num = 1
+    
+    start_idx = (st.session_state.page_num - 1) * ITEMS_PER_PAGE
+    end_idx = start_idx + ITEMS_PER_PAGE
+    
+    df_page = df_filtered.iloc[start_idx:end_idx]
+    
+    st.info(f"📋 검색 결과: **{total_count}**건 (현재 페이지: {st.session_state.page_num}/{total_pages})")
 
     # ==========================================================================
-    # [UNIVERSAL ACTION BAR] 모든 모드에서 접근 가능
+    # [VIEW MODE A] 3-LAYER SLIM CARD VIEW
     # ==========================================================================
-    c_sel, c_desel, c_save = st.columns([1, 1, 2])
-    
-    if c_sel.button("✅ 전체 선택"):
-        target_ids = df_filtered['IronID'].tolist()
-        st.session_state.df_main.loc[st.session_state.df_main['IronID'].isin(target_ids), '선택'] = True
-        st.session_state.editor_key_version += 1
-        st.rerun()
-
-    if c_desel.button("⬜ 전체 해제"):
-        st.session_state.df_main['선택'] = False
-        st.session_state.editor_key_version += 1
-        st.rerun()
-    
-    # --------------------------------------------------------------------------
-    # [MODE A] CARD VIEW
-    # --------------------------------------------------------------------------
     if st.session_state.view_mode == '🗂️ 카드 모드':
         with st.container(height=500):
-            display_limit = 50
-            if len(df_filtered) > display_limit:
-                st.caption(f"⚠️ 상위 {display_limit}개만 표시됩니다. (전체 {len(df_filtered)}개)")
-            
-            for idx, row in df_filtered.head(display_limit).iterrows():
+            for idx, row in df_page.iterrows():
+                # 1단: 구분 + 가격
                 gubun = row.get('구분', '매물')
-                loc = f"{row.get('지역_구', '')} {row.get('지역_동', '')} {row.get('번지', '')}"
-                
                 if is_sale_mode:
                     price = f"매매 {int(row.get('매매가', 0)):,}만"
+                    if row.get('수익률', 0) > 0: price += f" (수익률 {row['수익률']}%)"
                 else:
                     price = f"보 {int(row.get('보증금', 0)):,} / 월 {int(row.get('월차임', 0)):,}"
-                    if row.get('권리금', 0) > 0: price += f" (권 {int(row['권리금']):,})"
+                    if row.get('관리비', 0) > 0: price += f" (관 {int(row['관리비']):,})"
+
+                # 2단: 주소 + 층
+                addr = f"{row.get('지역_구', '')} {row.get('지역_동', '')} {row.get('번지', '')}"
+                floor = f"{row.get('층', '')}층"
                 
-                spec = f"{row.get('면적', 0)}평 | {row.get('층', '')}층"
-                desc = str(row.get('내용', ''))[:30] + "..." if len(str(row.get('내용', ''))) > 30 else str(row.get('내용', ''))
+                # 3단: 상세 스펙
+                if is_sale_mode:
+                    spec = f"대지:{row.get('대지면적', 0)}평 / 연면:{row.get('연면적', 0)}평"
+                else:
+                    spec = f"{row.get('호실', '')}호 / 실:{row.get('면적', 0)}평"
+                    if row.get('권리금', 0) > 0: spec += f" / 권:{int(row['권리금']):,}"
+                    if row.get('현업종', ''): spec += f" / {row['현업종']}"
                 
-                # 카드 HTML
+                # HTML 렌더링
                 card_html = f"""
                 <div class="listing-card">
-                    <div class="card-header">
+                    <div class="card-row-1">
                         <span class="card-tag">{gubun}</span>
-                        <span style="font-size:0.8rem; color:#999;">#{idx+1}</span>
+                        <span class="card-price">{price}</span>
                     </div>
-                    <div class="card-price">{price}</div>
-                    <div class="card-info">📍 {loc}</div>
-                    <div class="card-info">📐 {spec}</div>
-                    <div class="card-meta">📝 {desc}</div>
+                    <div class="card-row-2">
+                        📍 {addr} <span style="color:#ddd">|</span> {floor}
+                    </div>
+                    <div class="card-row-3">
+                        📐 {spec}
+                    </div>
                 </div>
                 """
                 st.markdown(card_html, unsafe_allow_html=True)
-                
-        st.caption("ℹ️ 상세 편집은 '리스트 모드'를 이용하세요.")
+        
+        # 페이지네이션 컨트롤
+        c_prev, c_page, c_next = st.columns([1, 2, 1])
+        if c_prev.button("◀ 이전"):
+            if st.session_state.page_num > 1: 
+                st.session_state.page_num -= 1
+                st.rerun()
+        c_page.markdown(f"<div style='text-align:center; padding-top:10px;'>Page {st.session_state.page_num} / {total_pages}</div>", unsafe_allow_html=True)
+        if c_next.button("다음 ▶"):
+            if st.session_state.page_num < total_pages: 
+                st.session_state.page_num += 1
+                st.rerun()
 
-    # --------------------------------------------------------------------------
-    # [MODE B] LIST VIEW
-    # --------------------------------------------------------------------------
+    # ==========================================================================
+    # [VIEW MODE B] LIST VIEW (Data Editor)
+    # ==========================================================================
     else:
+        # Mass Action
+        c_sel, c_desel, c_dummy = st.columns([1, 1, 2])
+        if c_sel.button("✅ 전체 선택"):
+            target_ids = df_page['IronID'].tolist() # 현재 페이지 대상
+            st.session_state.df_main.loc[st.session_state.df_main['IronID'].isin(target_ids), '선택'] = True
+            st.session_state.editor_key_version += 1
+            st.rerun()
+        if c_desel.button("⬜ 전체 해제"):
+            st.session_state.df_main['선택'] = False
+            st.session_state.editor_key_version += 1
+            st.rerun()
+
         col_cfg = {"선택": st.column_config.CheckboxColumn(width="small"), "IronID": None}
         format_map = {"매매가": "%d", "보증금": "%d", "월차임": "%d", "권리금": "%d", "면적": "%.1f", "대지면적": "%.1f", "연면적": "%.1f"}
         for col, fmt in format_map.items():
@@ -311,7 +331,7 @@ def main_list_view():
         
         # 400px Fixed Height
         edited_df = st.data_editor(
-            df_filtered,
+            df_page, # 페이지네이션 적용된 데이터
             disabled=disabled_cols,
             use_container_width=True,
             hide_index=True,
@@ -321,8 +341,26 @@ def main_list_view():
             num_rows="fixed"
         )
         
-        # 저장 버튼 (리스트 모드 전용)
-        if c_save.button("💾 변경사항 저장 (Beta)", type="primary"):
+        # 페이지네이션 컨트롤 (리스트 모드)
+        c_prev, c_page, c_next = st.columns([1, 2, 1])
+        if c_prev.button("◀ 이전", key="prev_list"):
+            if st.session_state.page_num > 1: 
+                st.session_state.page_num -= 1
+                st.rerun()
+        c_page.markdown(f"<div style='text-align:center; padding-top:10px;'>Page {st.session_state.page_num} / {total_pages}</div>", unsafe_allow_html=True)
+        if c_next.button("다음 ▶", key="next_list"):
+            if st.session_state.page_num < total_pages: 
+                st.session_state.page_num += 1
+                st.rerun()
+
+    # --- UNIVERSAL ACTION BAR ---
+    st.divider()
+    
+    # 1. 저장 버튼 (항상 노출)
+    if st.button("💾 변경사항 저장 (서버 반영)", type="primary", use_container_width=True):
+        if st.session_state.view_mode != '📋 리스트 모드':
+            st.error("⚠️ 데이터 수정 및 저장은 '리스트 모드'에서만 가능합니다.")
+        else:
             with st.status("💾 저장 중...", expanded=True) as status:
                 success, msg, debug_data = engine.save_updates_to_sheet(edited_df, st.session_state.df_main, st.session_state.current_sheet)
                 if success:
@@ -336,10 +374,9 @@ def main_list_view():
                     st.error(msg)
                     if debug_data: st.write(debug_data)
     
-    # --- UNIVERSAL ACTION BAR ---
-    st.divider()
+    st.write("")
     
-    # 현재 '선택'된 행 계산 (뷰 모드 무관하게 세션 데이터 기준)
+    # 2. 삭제/이동 액션바
     selected_rows = st.session_state.df_main[st.session_state.df_main['선택'] == True]
     selected_count = len(selected_rows)
     
@@ -351,7 +388,6 @@ def main_list_view():
         base_tab_name = current_tab.replace("(종료)", "").replace("브리핑", "").strip()
         
         ac1, ac2, ac3 = st.columns(3)
-        
         with ac1:
             if is_briefing: st.button("🚫", disabled=True, use_container_width=True)
             elif is_ended:
