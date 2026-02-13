@@ -1,18 +1,18 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.21.9)
-# Final Fix: Container Removal & Direct Height Control
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.21.10)
+# Final Fix: Buffer Zone & Layout Integrity
 
 import streamlit as st
 import pandas as pd
 import time
 import core_engine as engine  # [Core Engine v24.21.2]
-import styles                 # [Style Module v24.21.9]
+import styles                 # [Style Module v24.21.10]
 
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
 st.set_page_config(
-    page_title="범공인 Pro (v24.21.9)",
+    page_title="범공인 Pro (v24.21.10)",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -36,7 +36,7 @@ engine.initialize_search_state() # 필터 변수 초기화
 def sess(key): return st.session_state[key]
 
 # ==============================================================================
-# [SIDEBAR] 필터링 컨트롤 타워
+# [SIDEBAR] 필터링 컨트롤 타워 (All Smart Filters)
 # ==============================================================================
 with st.sidebar:
     st.header("📂 관리 도구")
@@ -209,12 +209,14 @@ def main_list_view():
         mask = search_scope.fillna("").astype(str).apply(lambda x: ' '.join(x), axis=1).str.contains(search_val, case=False)
         df_filtered = df_filtered[mask]
 
-    # Numeric
+    # Numeric (Engine 변수 활용)
     if is_sale_mode:
         if '매매가' in df_filtered.columns:
             df_filtered = df_filtered[(df_filtered['매매가'] >= st.session_state.min_price) & (df_filtered['매매가'] <= st.session_state.max_price)]
         if '대지면적' in df_filtered.columns:
             df_filtered = df_filtered[(df_filtered['대지면적'] >= st.session_state.min_land) & (df_filtered['대지면적'] <= st.session_state.max_land)]
+        if '연면적' in df_filtered.columns:
+            df_filtered = df_filtered[(df_filtered['연면적'] >= st.session_state.min_total) & (df_filtered['연면적'] <= st.session_state.max_total)]
     else:
         if '보증금' in df_filtered.columns:
             df_filtered = df_filtered[(df_filtered['보증금'] >= st.session_state.min_dep) & (df_filtered['보증금'] <= st.session_state.max_dep)]
@@ -246,7 +248,7 @@ def main_list_view():
         with st.status("💾 서버에 저장 중...", expanded=True) as status:
             st.warning("⚠️ 리스트 하단의 저장 버튼을 이용해주세요.")
 
-    # --- DATA EDITOR ---
+    # --- DATA EDITOR (SCROLL JAIL) ---
     if len(df_filtered) == 0:
         st.warning("🔍 검색 결과가 없습니다.")
         return
@@ -272,8 +274,7 @@ def main_list_view():
 
     editor_key = f"editor_{st.session_state.current_sheet}_{st.session_state.editor_key_version}"
     
-    # [DIRECT HEIGHT CONTROL] 컨테이너 없이 에디터 자체 높이 지정 (500px)
-    # num_rows="fixed"로 행 추가/삭제 방지 (모바일 오터치 방지)
+    # [DIRECT HEIGHT CONTROL]
     edited_df = st.data_editor(
         df_filtered,
         disabled=disabled_cols,
@@ -284,6 +285,11 @@ def main_list_view():
         height=500, 
         num_rows="fixed"
     )
+
+    # [BUFFER ZONE] 터치 간섭 방지용 여백
+    with st.container():
+        st.write("") 
+        st.write("")
 
     # --- ACTION BAR (BOTTOM) ---
     st.divider()
