@@ -1,18 +1,18 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.21.10)
-# Final Fix: Buffer Zone & Layout Integrity
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.21.11)
+# Final Fix: 450px Safe Height & Buffer Zone
 
 import streamlit as st
 import pandas as pd
 import time
 import core_engine as engine  # [Core Engine v24.21.2]
-import styles                 # [Style Module v24.21.10]
+import styles                 # [Style Module v24.21.11]
 
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
 st.set_page_config(
-    page_title="범공인 Pro (v24.21.10)",
+    page_title="범공인 Pro (v24.21.11)",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -36,7 +36,7 @@ engine.initialize_search_state() # 필터 변수 초기화
 def sess(key): return st.session_state[key]
 
 # ==============================================================================
-# [SIDEBAR] 필터링 컨트롤 타워 (All Smart Filters)
+# [SIDEBAR] 필터링 컨트롤 타워
 # ==============================================================================
 with st.sidebar:
     st.header("📂 관리 도구")
@@ -58,12 +58,12 @@ with st.sidebar:
 
     # [데이터 로드 & 세션 고정]
     if 'df_main' not in st.session_state:
-        with st.spinner("데이터를 불러오는 중..."):
+        with st.spinner("데이터 로드 중..."):
             loaded_df = engine.load_sheet_data(st.session_state.current_sheet)
             if loaded_df is not None:
                 st.session_state.df_main = loaded_df
             else:
-                st.error("🚨 데이터 로드 실패. GID 설정을 확인하세요.")
+                st.error("🚨 데이터 로드 실패. GID 확인 필요.")
                 st.stop()
     
     df_main = st.session_state.df_main
@@ -73,8 +73,8 @@ with st.sidebar:
     # 2. 텍스트 검색
     with st.container(border=True):
         st.markdown("##### 🔍 키워드 검색")
-        st.text_input("통합 검색 (내용, 건물명)", key='search_keyword', placeholder="검색어 입력")
-        st.text_input("번지 정밀검색 (예: 50-1)", key='exact_bunji', placeholder="번지 입력")
+        st.text_input("통합 검색", key='search_keyword', placeholder="내용, 건물명 등")
+        st.text_input("번지 검색", key='exact_bunji', placeholder="예: 50-1")
 
     st.write("") 
 
@@ -215,8 +215,6 @@ def main_list_view():
             df_filtered = df_filtered[(df_filtered['매매가'] >= st.session_state.min_price) & (df_filtered['매매가'] <= st.session_state.max_price)]
         if '대지면적' in df_filtered.columns:
             df_filtered = df_filtered[(df_filtered['대지면적'] >= st.session_state.min_land) & (df_filtered['대지면적'] <= st.session_state.max_land)]
-        if '연면적' in df_filtered.columns:
-            df_filtered = df_filtered[(df_filtered['연면적'] >= st.session_state.min_total) & (df_filtered['연면적'] <= st.session_state.max_total)]
     else:
         if '보증금' in df_filtered.columns:
             df_filtered = df_filtered[(df_filtered['보증금'] >= st.session_state.min_dep) & (df_filtered['보증금'] <= st.session_state.max_dep)]
@@ -248,7 +246,7 @@ def main_list_view():
         with st.status("💾 서버에 저장 중...", expanded=True) as status:
             st.warning("⚠️ 리스트 하단의 저장 버튼을 이용해주세요.")
 
-    # --- DATA EDITOR (SCROLL JAIL) ---
+    # --- DATA EDITOR (450px Safe Height) ---
     if len(df_filtered) == 0:
         st.warning("🔍 검색 결과가 없습니다.")
         return
@@ -274,7 +272,7 @@ def main_list_view():
 
     editor_key = f"editor_{st.session_state.current_sheet}_{st.session_state.editor_key_version}"
     
-    # [DIRECT HEIGHT CONTROL]
+    # [SAFE HEIGHT] 450px 고정 & 행 추가/삭제 방지 (num_rows="fixed")
     edited_df = st.data_editor(
         df_filtered,
         disabled=disabled_cols,
@@ -282,7 +280,7 @@ def main_list_view():
         hide_index=True,
         column_config=col_cfg,
         key=editor_key,
-        height=500, 
+        height=450, 
         num_rows="fixed"
     )
 
