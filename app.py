@@ -1,18 +1,18 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.21.14)
-# Final Fix: 400px Safe Height & Filter Reset
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.21.15)
+# Final Fix: Layer Isolation & Full Business Logic
 
 import streamlit as st
 import pandas as pd
 import time
 import core_engine as engine  # [Core Engine v24.21.2]
-import styles                 # [Style Module v24.21.14]
+import styles                 # [Style Module v24.21.15]
 
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
 st.set_page_config(
-    page_title="범공인 Pro (v24.21.14)",
+    page_title="범공인 Pro (v24.21.15)",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -134,7 +134,7 @@ with st.sidebar:
 
     st.write("")
 
-    # 4. 수치 필터 (범위 확장 및 기본값 0.0)
+    # 4. 수치 필터 (범위 확장)
     is_sale_mode = "매매" in st.session_state.current_sheet
     with st.expander("💰 상세 금액/면적 설정", expanded=False):
         # 상한선: 1,000억 / 100만평
@@ -175,8 +175,7 @@ with st.sidebar:
 
         st.caption("🏢 층수 (기본값 0.0)")
         cf1, cf2 = st.columns(2)
-        # min_fl 기본값 0.0으로 조정 (마이너스 제외)
-        # 단, 지하층 검색이 필요할 수 있으므로 min_value는 -10.0 유지하되 value만 0.0으로
+        # min_fl 기본값 0.0으로 조정 (마이너스 제외 X, 표준 유지)
         cf1.number_input("최저", step=1.0, key='min_fl', value=0.0, min_value=-10.0)
         cf2.number_input("최고", step=1.0, key='max_fl', value=100.0, max_value=200.0)
 
@@ -231,7 +230,6 @@ def main_list_view():
     
     if '면적' in df_filtered.columns:
         df_filtered = df_filtered[(df_filtered['면적'] >= st.session_state.min_area) & (df_filtered['면적'] <= st.session_state.max_area)]
-    # 층수 필터 (세션 변수 min_fl/max_fl 사용)
     if '층' in df_filtered.columns:
         df_filtered = df_filtered[(df_filtered['층'] >= st.session_state.min_fl) & (df_filtered['층'] <= st.session_state.max_fl)]
 
