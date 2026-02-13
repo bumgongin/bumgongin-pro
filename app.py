@@ -1,6 +1,6 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.24.3)
-# Feature: UI Restoration, Filter Logic Fix, Infra Engine Integration
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.26.0)
+# Feature: UI Restoration, Filter Logic Fix, Infra Engine Integration (On-Demand)
 
 import streamlit as st
 import pandas as pd
@@ -9,12 +9,12 @@ import math
 import core_engine as engine  # [Core Engine v24.24.3]
 import map_service as map_api # [Map Service v24.23.7]
 import styles                 # [Style Module v24.23.7]
-import infra_engine           # [Infra Engine v24.24.2]
+import infra_engine           # [Infra Engine v24.26.0]
 
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
-st.set_page_config(page_title="범공인 Pro (v24.24.3)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="범공인 Pro (v24.26.0)", layout="wide", initial_sidebar_state="expanded")
 styles.apply_custom_css()
 
 # 상태 변수 초기화
@@ -32,6 +32,21 @@ if 'show_dong_search' not in st.session_state: st.session_state.show_dong_search
 
 engine.initialize_search_state()
 def sess(key): return st.session_state[key]
+
+# ==============================================================================
+# [HELPER] 인프라 분석 캐싱 래퍼 (성능 최적화)
+# ==============================================================================
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_transport(lat, lng):
+    return infra_engine.get_transport_analysis(lat, lng)
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_commercial(lat, lng):
+    return infra_engine.get_commercial_analysis(lat, lng)
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_demand(lat, lng):
+    return infra_engine.get_demand_analysis(lat, lng)
 
 # ==============================================================================
 # [SIDEBAR] 필터링 컨트롤 타워
@@ -203,28 +218,55 @@ def main_list_view():
                     st.session_state.selected_item = None; st.cache_data.clear(); st.rerun()
                 else: st.error(msg)
         
-        # [INFRA ANALYSIS]
+        # [INFRA ANALYSIS - ON DEMAND V24.26.0]
         st.markdown("---")
         st.subheader("🏗️ 주변 인프라 분석 (반경 500m)")
-        if st.button("🚀 AI 상권 분석 실행", key="infra_btn", use_container_width=True):
-            if lat and lng:
-                with st.spinner("네이버 빅데이터 연동 중..."):
-                    infra_results = infra_engine.analyze_500m_infrastructure(lat, lng)
-                    summary_df = infra_engine.get_infra_summary_df(infra_results)
-                
-                st.success("분석 완료!")
-                st.dataframe(summary_df, hide_index=True, use_container_width=True, 
-                             column_config={"발견 수 (500m 내)": st.column_config.ProgressColumn("밀집도", format="%d개", min_value=0, max_value=15)})
-                
-                tabs = st.tabs(["🚇 교통", "🏫 교육", "🏪 편의/상업"])
-                with tabs[0]: st.write(pd.DataFrame(infra_results.get("지하철", [])))
-                with tabs[1]: st.write(pd.DataFrame(infra_results.get("학교", [])))
-                with tabs[2]: 
-                    c1, c2 = st.columns(2)
-                    with c1: st.write(pd.DataFrame(infra_results.get("편의점", [])))
-                    with c2: st.write(pd.DataFrame(infra_results.get("카페", [])))
-            else:
-                st.error("좌표 데이터가 없어 분석할 수 없습니다.")
+        
+        if not (lat and lng):
+            st.error("⚠️ 좌표 정보가 없어 분석할 수 없습니다.")
+        else:
+            col_t, col_c, col_d = st.columns(3)
+            
+            # 1. 교통 분석
+            with col_t:
+                if st.button("🚀 교통 분석 실행", use_container_width=True):
+                    with st.spinner("교통망 스캔 중..."):
+                        t_data = cached_transport(lat, lng)
+                        
+                        st.markdown(f"**🚆 {t_data.get('subway_station')}** ({t_data.get('exit_info', '출구')})")
+                        st.caption(f"도보 약 {t_data.get('walk_time')}분 / {t_data.get('subway_dist')}m")
+                        st.metric("버스 정류장", f"{t_data.get('bus_stop_count')}개")
+                        
+                        if not t_data['details'].empty:
+                            st.dataframe(t_data['details'], hide_index=True, use_container_width=True)
+
+            # 2. 상권 분석
+            with col_c:
+                if st.button("📊 상권 분석 실행", use_container_width=True):
+                    with st.spinner("상권 밀집도 분석 중..."):
+                        c_data = cached_commercial(lat, lng)
+                        
+                        st.markdown("##### 업종별 밀집도")
+                        st.bar_chart(c_data['counts'], height=150, color="#FF4B4B")
+                        
+                        st.markdown("##### 앵커 시설")
+                        st.dataframe(c_data['anchors'], hide_index=True, use_container_width=True)
+
+            # 3. 배후 수요 분석
+            with col_d:
+                if st.button("🏢 배후 수요 분석", use_container_width=True):
+                    with st.spinner("배후 수요 탐색 중..."):
+                        d_df = cached_demand(lat, lng)
+                        
+                        # [뱃지 표기 - 데이터 존재 시]
+                        # 엔진이 주거 데이터를 직접 주지 않으므로, 오피스/교육 시설 요약으로 대체
+                        office_cnt = len(d_df[d_df['구분'] == '업무시설']) if not d_df.empty and '구분' in d_df.columns else 0
+                        st.markdown(f"##### 🏢 업무시설: {office_cnt}곳 감지")
+                        
+                        if not d_df.empty:
+                            st.dataframe(d_df[['구분', '시설명', '거리(m)']], hide_index=True, use_container_width=True)
+                        else:
+                            st.info("반경 500m 내 주요 수요 시설 없음")
 
         return
 
@@ -248,7 +290,8 @@ def main_list_view():
     else:
         if '보증금' in df_filtered.columns and not df_filtered.empty: df_filtered = df_filtered[(df_filtered['보증금'] >= st.session_state.min_dep) & (df_filtered['보증금'] <= st.session_state.max_dep)]
         if '월차임' in df_filtered.columns and not df_filtered.empty: df_filtered = df_filtered[(df_filtered['월차임'] >= st.session_state.min_rent) & (df_filtered['월차임'] <= st.session_state.max_rent)]
-        # [권리금 필터 로직 교정]
+        
+        # [권리금 필터 로직 교정 V24.26.0]
         if '권리금' in df_filtered.columns and not df_filtered.empty:
             if st.session_state.is_no_kwon:
                 df_filtered = df_filtered[df_filtered['권리금'] == 0]
