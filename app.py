@@ -1,18 +1,18 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.21.12)
-# Integration: Anti-Scroll Chaining & Safe Layout
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.21.13)
+# Final Fix: Filter Expansion & UI Cleanup
 
 import streamlit as st
 import pandas as pd
 import time
 import core_engine as engine  # [Core Engine v24.21.2]
-import styles                 # [Style Module v24.21.12]
+import styles                 # [Style Module v24.21.13]
 
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
 st.set_page_config(
-    page_title="범공인 Pro (v24.21.12)",
+    page_title="범공인 Pro (v24.21.13)",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -134,45 +134,49 @@ with st.sidebar:
 
     st.write("")
 
-    # 4. 수치 필터
+    # 4. 수치 필터 (범위 확장)
     is_sale_mode = "매매" in st.session_state.current_sheet
     with st.expander("💰 상세 금액/면적 설정", expanded=False):
+        # 상한선: 1,000억 / 100만평
+        MAX_PRICE = 10000000.0 
+        MAX_AREA = 1000000.0
+
         if is_sale_mode:
             st.caption("🅰️ 매매가 (만원)")
             c1, c2 = st.columns(2)
             c1.number_input("최소", step=1000.0, key='min_price', value=sess('min_price'))
-            c2.number_input("최대", step=1000.0, key='max_price', value=sess('max_price'))
+            c2.number_input("최대", step=1000.0, key='max_price', value=sess('max_price'), max_value=MAX_PRICE)
             
             st.caption("🅱️ 대지면적 (평)")
             c3, c4 = st.columns(2)
             c3.number_input("최소", step=1.0, key='min_land', value=sess('min_land'))
-            c4.number_input("최대", step=1.0, key='max_land', value=sess('max_land'))
+            c4.number_input("최대", step=1.0, key='max_land', value=sess('max_land'), max_value=MAX_AREA)
         else:
             st.caption("🅰️ 보증금 (만원)")
             c1, c2 = st.columns(2)
             c1.number_input("최소", step=500.0, key='min_dep', value=sess('min_dep'))
-            c2.number_input("최대", step=500.0, key='max_dep', value=sess('max_dep'))
+            c2.number_input("최대", step=500.0, key='max_dep', value=sess('max_dep'), max_value=MAX_PRICE)
             
             st.caption("🅱️ 월세 (만원)")
             c3, c4 = st.columns(2)
             c3.number_input("최소", step=10.0, key='min_rent', value=sess('min_rent'))
-            c4.number_input("최대", step=10.0, key='max_rent', value=sess('max_rent'))
+            c4.number_input("최대", step=10.0, key='max_rent', value=sess('max_rent'), max_value=MAX_PRICE)
             
             st.caption("©️ 권리금 (만원)")
             c7, c8 = st.columns(2)
             c7.number_input("최소", step=100.0, key='min_kwon', value=sess('min_kwon'))
-            c8.number_input("최대", step=100.0, key='max_kwon', value=sess('max_kwon'))
+            c8.number_input("최대", step=100.0, key='max_kwon', value=sess('max_kwon'), max_value=MAX_PRICE)
 
         st.divider()
         st.caption("📐 면적 (평)")
         cm1, cm2 = st.columns(2)
         cm1.number_input("최소", step=5.0, key='min_area', value=sess('min_area'))
-        cm2.number_input("최대", step=5.0, key='max_area', value=sess('max_area'))
+        cm2.number_input("최대", step=5.0, key='max_area', value=sess('max_area'), max_value=MAX_AREA)
 
         st.caption("🏢 층수")
         cf1, cf2 = st.columns(2)
-        cf1.number_input("최저", step=1.0, key='min_fl', value=sess('min_fl'))
-        cf2.number_input("최고", step=1.0, key='max_fl', value=sess('max_fl'))
+        cf1.number_input("최저", step=1.0, key='min_fl', value=sess('min_fl'), min_value=-10.0)
+        cf2.number_input("최고", step=1.0, key='max_fl', value=sess('max_fl'), max_value=200.0)
 
         st.caption("☑️ 기타")
         st.checkbox("무권리만 보기", key='is_no_kwon')
@@ -229,7 +233,7 @@ def main_list_view():
         df_filtered = df_filtered[(df_filtered['층'] >= st.session_state.min_fl) & (df_filtered['층'] <= st.session_state.max_fl)]
 
     # --- MASS ACTION ---
-    c_sel, c_desel, c_save = st.columns([1, 1, 2])
+    c_sel, c_desel, c_dummy = st.columns([1, 1, 2])
     
     if c_sel.button("✅ 전체 선택"):
         target_ids = df_filtered['IronID'].tolist()
@@ -242,9 +246,7 @@ def main_list_view():
         st.session_state.editor_key_version += 1
         st.rerun()
 
-    if c_save.button("💾 변경사항 저장 (Beta)", type="primary"):
-        with st.status("💾 서버에 저장 중...", expanded=True) as status:
-            st.warning("⚠️ 리스트 하단의 저장 버튼을 이용해주세요.")
+    # 상단 저장 버튼 제거됨 (UI 청소)
 
     # --- DATA EDITOR (SCROLL JAIL) ---
     if len(df_filtered) == 0:
@@ -292,6 +294,7 @@ def main_list_view():
     # --- ACTION BAR (BOTTOM) ---
     st.divider()
     
+    # 하단 통합 저장 버튼
     if st.button("💾 수정한 내용 서버에 저장하기", type="primary", use_container_width=True):
         with st.status("💾 저장 중...", expanded=True) as status:
             success, msg, debug_data = engine.save_updates_to_sheet(edited_df, st.session_state.df_main, st.session_state.current_sheet)
