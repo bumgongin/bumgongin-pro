@@ -1,45 +1,39 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.22.6)
-# Fix: Visual Sync, Real-time Selection, Unique IDs
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.23.2)
+# Final Integration: Map, Edit, List, Card, Sync
 
 import streamlit as st
 import pandas as pd
 import time
 import math
-import core_engine as engine  # [Core Engine v24.21.2]
-import styles                 # [Style Module v24.22.6]
+import core_engine as engine  # [Core Engine v24.23.2]
+import map_service as map_api # [Map Service v24.23.1]
+import styles                 # [Style Module v24.23.2]
 
 # ==============================================================================
-# [INIT] 시스템 초기화
+# [INIT]
 # ==============================================================================
-st.set_page_config(
-    page_title="범공인 Pro (v24.22.6)",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
+st.set_page_config(page_title="범공인 Pro (v24.23.2)", layout="wide", initial_sidebar_state="expanded")
 styles.apply_custom_css()
 
-# 상태 초기화
 if 'current_sheet' not in st.session_state: st.session_state.current_sheet = engine.SHEET_NAMES[0]
 if 'action_status' not in st.session_state: st.session_state.action_status = None 
 if 'view_mode' not in st.session_state: st.session_state.view_mode = '🗂️ 카드 모드'
 if 'page_num' not in st.session_state: st.session_state.page_num = 1
-    
-# 스마트 필터
+if 'selected_item' not in st.session_state: st.session_state.selected_item = None 
+
 if 'show_cat_search' not in st.session_state: st.session_state.show_cat_search = False
 if 'show_gu_search' not in st.session_state: st.session_state.show_gu_search = False
 if 'show_dong_search' not in st.session_state: st.session_state.show_dong_search = False
-    
+
 engine.initialize_search_state()
 def sess(key): return st.session_state[key]
 
 # ==============================================================================
-# [SIDEBAR] 필터링 컨트롤 타워
+# [SIDEBAR]
 # ==============================================================================
 with st.sidebar:
     st.header("📂 관리 도구")
-    
     with st.container(border=True):
         st.markdown("##### 📄 작업 시트")
         try: curr_idx = engine.SHEET_NAMES.index(st.session_state.current_sheet)
@@ -51,8 +45,8 @@ with st.sidebar:
             st.session_state.action_status = None 
             st.session_state.editor_key_version += 1
             st.session_state.page_num = 1
+            st.session_state.selected_item = None
             if 'df_main' in st.session_state: del st.session_state.df_main
-            # 체크박스 상태 초기화
             keys_to_clear = [k for k in st.session_state.keys() if k.startswith("chk_")]
             for k in keys_to_clear: del st.session_state[k]
             st.cache_data.clear()
@@ -65,104 +59,142 @@ with st.sidebar:
             else: st.error("🚨 데이터 로드 실패."); st.stop()
     df_main = st.session_state.df_main
 
-    st.write("") 
-
-    with st.container(border=True):
-        st.markdown("##### 🔍 키워드 검색")
-        st.text_input("통합 검색", key='search_keyword', placeholder="내용, 건물명 등")
-        st.text_input("번지 검색", key='exact_bunji', placeholder="예: 50-1")
-
-    st.write("") 
-
+    st.write(""); st.text_input("통합 검색", key='search_keyword'); st.text_input("번지 검색", key='exact_bunji'); st.write("")
+    
     with st.container(border=True):
         st.markdown("##### 🏷️ 항목 필터링")
-        
-        c1, c2 = st.columns([4, 1])
-        c1.markdown("구분")
+        c1, c2 = st.columns([4, 1]); c1.markdown("구분"); 
         if c2.button("🔍", key="btn_cat"): st.session_state.show_cat_search = not st.session_state.show_cat_search
         unique_cat = sorted(df_main['구분'].astype(str).unique().tolist()) if '구분' in df_main.columns else []
-        if st.session_state.show_cat_search:
+        if st.session_state.show_cat_search: 
             term = st.text_input("구분 검색", key="cat_term")
             if term: unique_cat = [x for x in unique_cat if term in x]
-        st.multiselect("구분 선택", unique_cat, key='selected_cat', placeholder="전체 선택", label_visibility="collapsed")
-
-        c3, c4 = st.columns([4, 1])
-        c3.markdown("지역 (구)")
+        st.multiselect("구분", unique_cat, key='selected_cat', placeholder="전체", label_visibility="collapsed")
+        
+        c3, c4 = st.columns([4, 1]); c3.markdown("지역 (구)"); 
         if c4.button("🔍", key="btn_gu"): st.session_state.show_gu_search = not st.session_state.show_gu_search
         unique_gu = sorted(df_main['지역_구'].astype(str).unique().tolist()) if '지역_구' in df_main.columns else []
-        if st.session_state.show_gu_search:
+        if st.session_state.show_gu_search: 
             term = st.text_input("구 검색", key="gu_term")
             if term: unique_gu = [x for x in unique_gu if term in x]
-        st.multiselect("지역 (구) 선택", unique_gu, key='selected_gu', placeholder="전체 선택", label_visibility="collapsed")
+        st.multiselect("지역 (구)", unique_gu, key='selected_gu', placeholder="전체", label_visibility="collapsed")
         
-        c5, c6 = st.columns([4, 1])
-        c5.markdown("지역 (동)")
+        c5, c6 = st.columns([4, 1]); c5.markdown("지역 (동)"); 
         if c6.button("🔍", key="btn_dong"): st.session_state.show_dong_search = not st.session_state.show_dong_search
         unique_dong = []
         if '지역_동' in df_main.columns:
-            if st.session_state.selected_gu:
-                unique_dong = sorted(df_main[df_main['지역_구'].isin(st.session_state.selected_gu)]['지역_동'].astype(str).unique().tolist())
-            else:
-                unique_dong = sorted(df_main['지역_동'].astype(str).unique().tolist())
+            if st.session_state.selected_gu: unique_dong = sorted(df_main[df_main['지역_구'].isin(st.session_state.selected_gu)]['지역_동'].astype(str).unique().tolist())
+            else: unique_dong = sorted(df_main['지역_동'].astype(str).unique().tolist())
         if st.session_state.show_dong_search:
             term = st.text_input("동 검색", key="dong_term")
             if term: unique_dong = [x for x in unique_dong if term in x]
-        st.multiselect("지역 (동) 선택", unique_dong, key='selected_dong', placeholder="전체 선택", label_visibility="collapsed")
+        st.multiselect("지역 (동)", unique_dong, key='selected_dong', placeholder="전체", label_visibility="collapsed")
 
     st.write("")
-
     is_sale_mode = "매매" in st.session_state.current_sheet
-    with st.expander("💰 상세 금액/면적 설정", expanded=False):
-        MAX_PRICE = 10000000.0 
-        MAX_AREA = 1000000.0
+    with st.expander("💰 상세 설정", expanded=False):
+        MAX_P = 10000000.0; MAX_A = 1000000.0
         if is_sale_mode:
-            c1, c2 = st.columns(2); c1.number_input("최소 매가", key='min_price', value=sess('min_price')); c2.number_input("최대 매가", key='max_price', value=sess('max_price'), max_value=MAX_PRICE)
-            c3, c4 = st.columns(2); c3.number_input("최소 대지", key='min_land', value=sess('min_land')); c4.number_input("최대 대지", key='max_land', value=sess('max_land'), max_value=MAX_AREA)
+            c1, c2 = st.columns(2); c1.number_input("최소 매가", key='min_price', value=sess('min_price')); c2.number_input("최대 매가", key='max_price', value=sess('max_price'), max_value=MAX_P)
+            c3, c4 = st.columns(2); c3.number_input("최소 대지", key='min_land', value=sess('min_land')); c4.number_input("최대 대지", key='max_land', value=sess('max_land'), max_value=MAX_A)
         else:
-            c1, c2 = st.columns(2); c1.number_input("최소 보증", key='min_dep', value=sess('min_dep')); c2.number_input("최대 보증", key='max_dep', value=sess('max_dep'), max_value=MAX_PRICE)
-            c3, c4 = st.columns(2); c3.number_input("최소 월세", key='min_rent', value=sess('min_rent')); c4.number_input("최대 월세", key='max_rent', value=sess('max_rent'), max_value=MAX_PRICE)
-            c7, c8 = st.columns(2); c7.number_input("최소 권리", key='min_kwon', value=sess('min_kwon')); c8.number_input("최대 권리", key='max_kwon', value=sess('max_kwon'), max_value=MAX_PRICE)
-
+            c1, c2 = st.columns(2); c1.number_input("최소 보증", key='min_dep', value=sess('min_dep')); c2.number_input("최대 보증", key='max_dep', value=sess('max_dep'), max_value=MAX_P)
+            c3, c4 = st.columns(2); c3.number_input("최소 월세", key='min_rent', value=sess('min_rent')); c4.number_input("최대 월세", key='max_rent', value=sess('max_rent'), max_value=MAX_P)
+            c7, c8 = st.columns(2); c7.number_input("최소 권리", key='min_kwon', value=sess('min_kwon')); c8.number_input("최대 권리", key='max_kwon', value=sess('max_kwon'), max_value=MAX_P)
         st.divider()
-        c1, c2 = st.columns(2); c1.number_input("최소 면적", key='min_area', value=sess('min_area')); c2.number_input("최대 면적", key='max_area', value=sess('max_area'), max_value=MAX_AREA)
+        c1, c2 = st.columns(2); c1.number_input("최소 면적", key='min_area', value=sess('min_area')); c2.number_input("최대 면적", key='max_area', value=sess('max_area'), max_value=MAX_A)
         c1, c2 = st.columns(2); c1.number_input("최저 층", key='min_fl', value=0.0, min_value=-10.0); c2.number_input("최고 층", key='max_fl', value=100.0, max_value=200.0)
         st.checkbox("무권리만 보기", key='is_no_kwon')
     
     st.divider()
-    if st.button("🔄 조건 초기화"): engine.safe_reset()
-    
+    if st.button("🔄 초기화"): engine.safe_reset()
     st.markdown("---")
-    view_option = st.radio("보기 모드", ['🗂️ 카드 모드', '📋 리스트 모드'], index=0 if st.session_state.view_mode == '🗂️ 카드 모드' else 1)
-    if view_option != st.session_state.view_mode:
-        st.session_state.view_mode = view_option
-        st.rerun()
+    view_option = st.radio("보기", ['🗂️ 카드 모드', '📋 리스트 모드'], index=0 if st.session_state.view_mode == '🗂️ 카드 모드' else 1)
+    if view_option != st.session_state.view_mode: st.session_state.view_mode = view_option; st.rerun()
 
 # ==============================================================================
-# [MAIN CONTENT] 하이브리드 리스트 뷰
+# [MAIN CONTENT]
 # ==============================================================================
 st.title("🏙️ 범공인 매물장 (Pro)")
 
 @st.fragment
 def main_list_view():
-    df_filtered = df_main.copy()
+    # --------------------------------------------------------------------------
+    # [DETAIL VIEW]
+    # --------------------------------------------------------------------------
+    if st.session_state.selected_item is not None:
+        item = st.session_state.selected_item
+        c_back, c_title = st.columns([1, 5])
+        if c_back.button("◀ 목록"): st.session_state.selected_item = None; st.rerun()
+        c_title.markdown(f"### {item.get('건물명', '매물 상세')}")
 
-    # Filter Logic
-    if '구분' in df_filtered.columns and st.session_state.selected_cat:
-        df_filtered = df_filtered[df_filtered['구분'].isin(st.session_state.selected_cat)]
-    if '지역_구' in df_filtered.columns and st.session_state.selected_gu:
-        df_filtered = df_filtered[df_filtered['지역_구'].isin(st.session_state.selected_gu)]
-    if '지역_동' in df_filtered.columns and st.session_state.selected_dong:
-        df_filtered = df_filtered[df_filtered['지역_동'].isin(st.session_state.selected_dong)]
-    if '번지' in df_filtered.columns and st.session_state.exact_bunji:
-        df_filtered = df_filtered[df_filtered['번지'].astype(str).str.strip() == st.session_state.exact_bunji.strip()]
-    
+        addr_full = f"{item.get('지역_구', '')} {item.get('지역_동', '')} {item.get('번지', '')}"
+        with st.container():
+            st.caption(f"📍 {addr_full}")
+            lat, lng = map_api.get_naver_geocode(addr_full)
+            if lat and lng:
+                map_img = map_api.fetch_map_image(lat, lng)
+                if map_img: st.image(map_img, use_column_width=True)
+                else: st.warning("지도 로드 실패")
+            else: st.warning("위치 확인 불가")
+
+        st.divider()
+        with st.form("edit_form"):
+            st.markdown("#### 📝 매물 정보 수정")
+            c1, c2 = st.columns(2)
+            new_cat = c1.text_input("구분", value=item.get('구분', ''))
+            new_name = c2.text_input("건물명", value=item.get('건물명', ''))
+            
+            c3, c4 = st.columns(2)
+            if is_sale_mode:
+                new_price = c3.text_input("매매가", value=str(item.get('매매가', 0)).replace(',',''))
+                new_yield = c4.text_input("수익률", value=str(item.get('수익률', 0)).replace(',',''))
+            else:
+                new_dep = c3.text_input("보증금", value=str(item.get('보증금', 0)).replace(',',''))
+                new_rent = c4.text_input("월세", value=str(item.get('월차임', 0)).replace(',',''))
+            
+            c5, c6 = st.columns(2)
+            if is_sale_mode:
+                 new_land = c5.text_input("대지면적", value=str(item.get('대지면적', 0)).replace(',',''))
+                 new_total = c6.text_input("연면적", value=str(item.get('연면적', 0)).replace(',',''))
+            else:
+                 new_kwon = c5.text_input("권리금", value=str(item.get('권리금', 0)).replace(',',''))
+                 new_man = c6.text_input("관리비", value=str(item.get('관리비', 0)).replace(',',''))
+
+            c7, c8 = st.columns(2)
+            new_area = c7.text_input("전용면적", value=str(item.get('면적', 0)).replace(',',''))
+            new_floor = c8.text_input("층수", value=str(item.get('층', '')))
+            
+            new_desc = st.text_area("특징", value=item.get('내용', ''), height=100)
+            new_memo = st.text_area("비고", value=item.get('비고', ''), height=60)
+
+            if st.form_submit_button("💾 수정 완료", type="primary", use_container_width=True):
+                updated_data = item.copy()
+                updated_data.update({'구분': new_cat, '건물명': new_name, '면적': new_area, '층': new_floor, '내용': new_desc, '비고': new_memo})
+                if is_sale_mode: updated_data.update({'매매가': new_price, '수익률': new_yield, '대지면적': new_land, '연면적': new_total})
+                else: updated_data.update({'보증금': new_dep, '월차임': new_rent, '권리금': new_kwon, '관리비': new_man})
+                
+                success, msg = engine.update_single_row(updated_data, st.session_state.current_sheet)
+                if success:
+                    st.success(msg); time.sleep(1.5); del st.session_state.df_main
+                    st.session_state.selected_item = None; st.cache_data.clear(); st.rerun()
+                else: st.error(msg)
+        return
+
+    # --------------------------------------------------------------------------
+    # [LIST VIEW]
+    # --------------------------------------------------------------------------
+    df_filtered = df_main.copy()
+    if '구분' in df_filtered.columns and st.session_state.selected_cat: df_filtered = df_filtered[df_filtered['구분'].isin(st.session_state.selected_cat)]
+    if '지역_구' in df_filtered.columns and st.session_state.selected_gu: df_filtered = df_filtered[df_filtered['지역_구'].isin(st.session_state.selected_gu)]
+    if '지역_동' in df_filtered.columns and st.session_state.selected_dong: df_filtered = df_filtered[df_filtered['지역_동'].isin(st.session_state.selected_dong)]
+    if '번지' in df_filtered.columns and st.session_state.exact_bunji: df_filtered = df_filtered[df_filtered['번지'].astype(str).str.strip() == st.session_state.exact_bunji.strip()]
     search_val = st.session_state.search_keyword.strip()
     if search_val:
         search_scope = df_filtered.drop(columns=['선택', 'IronID'], errors='ignore')
         mask = search_scope.fillna("").astype(str).apply(lambda x: ' '.join(x), axis=1).str.contains(search_val, case=False)
         df_filtered = df_filtered[mask]
-
-    # Numeric Filters
+    
     if is_sale_mode:
         if '매매가' in df_filtered.columns: df_filtered = df_filtered[(df_filtered['매매가'] >= st.session_state.min_price) & (df_filtered['매매가'] <= st.session_state.max_price)]
         if '대지면적' in df_filtered.columns: df_filtered = df_filtered[(df_filtered['대지면적'] >= st.session_state.min_land) & (df_filtered['대지면적'] <= st.session_state.max_land)]
@@ -174,7 +206,6 @@ def main_list_view():
     if '면적' in df_filtered.columns: df_filtered = df_filtered[(df_filtered['면적'] >= st.session_state.min_area) & (df_filtered['면적'] <= st.session_state.max_area)]
     if '층' in df_filtered.columns: df_filtered = df_filtered[(df_filtered['층'] >= st.session_state.min_fl) & (df_filtered['층'] <= st.session_state.max_fl)]
 
-    # Info & Pagination
     total_count = len(df_filtered)
     if total_count == 0: st.warning("🔍 검색 결과가 없습니다."); return
 
@@ -188,28 +219,21 @@ def main_list_view():
     
     st.info(f"📋 검색 결과: **{total_count}**건 (페이지: {st.session_state.page_num}/{total_pages})")
 
-    # ==========================================================================
-    # [VIEW MODE A] CARD VIEW
-    # ==========================================================================
     if st.session_state.view_mode == '🗂️ 카드 모드':
-        # Mass Action (Synced)
         c_act1, c_act2 = st.columns(2)
         if c_act1.button("✅ 전체 선택", key="sel_all_card"):
             target_ids = df_page['IronID'].tolist()
             st.session_state.df_main.loc[st.session_state.df_main['IronID'].isin(target_ids), '선택'] = True
-            # 체크박스 상태 강제 동기화
             for iid in target_ids: st.session_state[f"chk_{iid}"] = True
             st.rerun()
         if c_act2.button("⬜ 전체 해제", key="desel_all_card"):
             st.session_state.df_main['선택'] = False
-            # 체크박스 상태 강제 해제
             for iid in st.session_state.df_main['IronID']:
                 if f"chk_{iid}" in st.session_state: st.session_state[f"chk_{iid}"] = False
             st.rerun()
 
         with st.container(height=500):
             for idx, row in df_page.iterrows():
-                # Data Processing
                 raw_ho = str(row.get('호실', '')).replace('호', '').strip()
                 ho_str = f"{raw_ho}호" if raw_ho else ""
                 gubun = row.get('구분', '매물')
@@ -220,21 +244,16 @@ def main_list_view():
                 else:
                     price = f"보 {int(row.get('보증금', 0)):,} / 월 {int(row.get('월차임', 0)):,}"
                     if row.get('관리비', 0) > 0: price += f" (관 {int(row['관리비']):,})"
-
                 addr = f"{row.get('지역_구', '')} {row.get('지역_동', '')} {row.get('번지', '')}"
                 floor = f"{row.get('층', '')}층"
                 
-                if is_sale_mode:
-                    spec = f"대지:{row.get('대지면적', 0)}평 / 연면:{row.get('연면적', 0)}평"
+                if is_sale_mode: spec = f"대지:{row.get('대지면적', 0)}평 / 연면:{row.get('연면적', 0)}평"
                 else:
                     spec = f"{ho_str} / 실:{row.get('면적', 0)}평"
                     if row.get('권리금', 0) > 0: spec += f" / 권:{int(row['권리금']):,}"
                     if row.get('현업종', ''): spec += f" / {row['현업종']}"
                 
-                # Card + Checkbox
-                c_chk, c_card = st.columns([1, 12]) 
-                
-                # Checkbox (Sync)
+                c_chk, c_card, c_btn = st.columns([1, 10, 3]) 
                 is_checked = st.session_state.df_main.loc[st.session_state.df_main['IronID'] == row['IronID'], '선택'].values[0]
                 chk_key = f"chk_{row['IronID']}"
                 if chk_key not in st.session_state: st.session_state[chk_key] = bool(is_checked)
@@ -248,24 +267,16 @@ def main_list_view():
                         st.session_state.df_main.loc[st.session_state.df_main['IronID'] == row['IronID'], '선택'] = False
                         st.rerun()
 
-                # Card HTML
-                card_html = f"""
+                c_card.markdown(f"""
                 <div class="listing-card">
-                    <div class="card-row-1">
-                        <span class="card-tag">{gubun}</span>
-                        <span class="card-price">{price}</span>
-                    </div>
-                    <div class="card-row-2">
-                        📍 {addr} <span style="color:#ddd">|</span> {floor}
-                    </div>
-                    <div class="card-row-3">
-                        📐 {spec}
-                    </div>
-                </div>
-                """
-                c_card.markdown(card_html, unsafe_allow_html=True)
+                    <div class="card-row-1"><span class="card-tag">{gubun}</span><span class="card-price">{price}</span></div>
+                    <div class="card-row-2">📍 {addr} <span style="color:#ddd">|</span> {floor}</div>
+                    <div class="card-row-3">📐 {spec}</div>
+                </div>""", unsafe_allow_html=True)
+                
+                if c_btn.button("상세", key=f"btn_detail_{row['IronID']}"):
+                    st.session_state.selected_item = row; st.rerun()
         
-        # Pagination
         c_prev, c_page, c_next = st.columns([1, 1, 1])
         if c_prev.button("◀", key="prev_card"):
             if st.session_state.page_num > 1: st.session_state.page_num -= 1; st.rerun()
@@ -273,20 +284,15 @@ def main_list_view():
         if c_next.button("▶", key="next_card"):
             if st.session_state.page_num < total_pages: st.session_state.page_num += 1; st.rerun()
 
-    # ==========================================================================
-    # [VIEW MODE B] LIST VIEW
-    # ==========================================================================
     else:
         c_act1, c_act2 = st.columns(2)
         if c_act1.button("✅ 전체 선택", key="sel_all_list"):
             target_ids = df_page['IronID'].tolist()
             st.session_state.df_main.loc[st.session_state.df_main['IronID'].isin(target_ids), '선택'] = True
-            st.session_state.editor_key_version += 1
-            st.rerun()
+            st.session_state.editor_key_version += 1; st.rerun()
         if c_act2.button("⬜ 전체 해제", key="desel_all_list"):
             st.session_state.df_main['선택'] = False
-            st.session_state.editor_key_version += 1
-            st.rerun()
+            st.session_state.editor_key_version += 1; st.rerun()
 
         col_cfg = {"선택": st.column_config.CheckboxColumn(width="small"), "IronID": None}
         format_map = {"매매가": "%d", "보증금": "%d", "월차임": "%d", "권리금": "%d", "면적": "%.1f", "대지면적": "%.1f", "연면적": "%.1f"}
@@ -298,14 +304,8 @@ def main_list_view():
         dis_cols = [c for c in df_filtered.columns if c not in ['선택'] + cols]
         
         edited_df = st.data_editor(
-            df_page,
-            disabled=dis_cols,
-            use_container_width=True,
-            hide_index=True,
-            column_config=col_cfg,
-            key=f"editor_{st.session_state.editor_key_version}",
-            height=400, 
-            num_rows="fixed"
+            df_page, disabled=dis_cols, use_container_width=True, hide_index=True, column_config=col_cfg,
+            key=f"editor_{st.session_state.editor_key_version}", height=400, num_rows="fixed"
         )
         
         c_prev, c_page, c_next = st.columns([1, 1, 1])
@@ -325,26 +325,16 @@ def main_list_view():
                     st.cache_data.clear(); st.rerun()
                 else: st.error(msg)
     
-    # --- UNIVERSAL ACTION BAR ---
     st.divider()
-    
-    # [Dual State Monitor] 리스트 모드: edited_df 감시 / 카드 모드: session_state 감시
-    if st.session_state.view_mode == '📋 리스트 모드':
-        # 안전한 참조: edited_df가 정의되지 않았을 경우(초기 로드 등) 대비
-        try: selected_rows = edited_df[edited_df['선택'] == True]
-        except: selected_rows = pd.DataFrame()
-    else:
-        selected_rows = st.session_state.df_main[st.session_state.df_main['선택'] == True]
-        
+    selected_rows = st.session_state.df_main[st.session_state.df_main['선택'] == True]
     if len(selected_rows) > 0:
         st.success(f"✅ {len(selected_rows)}건 선택됨")
         cur_tab = st.session_state.current_sheet
         is_end = "(종료)" in cur_tab
         base_tab = cur_tab.replace("(종료)", "").replace("브리핑", "").strip()
-        base_label = "매매" if "매매" in cur_tab else "임대" # 문맥 라벨
+        base_label = "매매" if "매매" in cur_tab else "임대"
         
         ac1, ac2, ac3 = st.columns(3)
-        # [Contextual Buttons]
         with ac1:
             if "브리핑" in cur_tab: st.button("🚫", disabled=True, use_container_width=True, key="btn_move_disabled")
             elif is_end:
