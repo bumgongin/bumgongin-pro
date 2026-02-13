@@ -8,40 +8,60 @@ import uuid
 # [MODULE: SYSTEM SETUP]
 # 1. 시스템 설정
 st.set_page_config(
-    page_title="범공인 Pro (v24.19.1)",
+    page_title="범공인 Pro (v24.19.2)",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # [MODULE: STYLES & CSS]
-# 2. 스타일 설정
+# 2. 스타일 설정 (모바일 터치 최적화 & 깜빡임 방지)
 st.markdown("""
     <style>
+    /* 버튼 크기 및 터치 영역 확보 */
     .stButton button { 
         min-height: 50px !important; 
         font-size: 16px !important; 
         font-weight: bold !important; 
         width: 100%;
+        border-radius: 8px;
     }
+    
+    /* 입력창 높이 확보 */
     input[type=number], input[type=text] { 
         min-height: 45px !important; 
         font-size: 16px !important; 
     }
+    
+    /* 셀렉트박스 터치 개선 */
+    div[data-baseweb="select"] > div {
+        min-height: 45px !important;
+    }
+    
+    /* Expander 헤더 크기 증가 */
     div[data-testid="stExpander"] details summary p { 
         font-size: 1.1rem; 
         font-weight: 600; 
         padding: 10px 0;
     }
+    
+    /* 액션 버튼 스타일 구분 */
+    div[data-testid="stHorizontalBlock"] button[kind="secondary"] { 
+        border: 1px solid #e0e0e0; 
+    }
+
+    /* 모바일 리스트 폰트 및 높이 조정 */
     @media (max-width: 768px) { 
         .stDataEditor { font-size: 14px !important; }
-        h1 { font-size: 24px !important; }
-        div[data-testid="column"] { margin-bottom: 10px; }
+        h1 { font-size: 22px !important; }
+        div[data-testid="column"] { margin-bottom: 8px; }
+        /* 모바일에서 필터박스 간격 확보 */
+        div.stSelectbox { margin-bottom: 5px; }
     }
     </style>
 """, unsafe_allow_html=True)
 
 # [MODULE: CONSTANTS]
-# 3. 상수 및 매핑 (변수명 통일)
+# 3. 상수 및 매핑 (변수명 통합)
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1bmTnLu-vMvlAGRSsCI4a8lk00U38covWl5Wfn9JZYVU"
 SHEET_GIDS = {
     "임대": "2063575964", 
@@ -56,6 +76,7 @@ SHEET_NAMES = list(SHEET_GIDS.keys())
 # [MODULE: UTILITIES]
 # 4. 유틸리티 함수
 def safe_reset():
+    """세션 상태를 안전하게 초기화하고 앱을 리로드합니다."""
     for key in list(st.session_state.keys()):
         if key != 'current_sheet':
             del st.session_state[key]
@@ -63,6 +84,7 @@ def safe_reset():
     st.rerun()
 
 def standardize_columns(df):
+    """헤더 공백 제거 및 표준명 매핑"""
     df.columns = df.columns.str.replace(' ', '').str.strip()
     synonym_map = {
         "보증금": ["보증금(만원)", "기보증금(만원)", "기보증금", "보증금"],
@@ -95,7 +117,7 @@ def load_data(sheet_name):
     gid = SHEET_GIDS.get(sheet_name)
     if not gid: return None
     
-    # URL 통합 사용 (SHEET_URL 사용)
+    # URL 통합 사용
     csv_url = f"{SHEET_URL}/export?format=csv&gid={gid}"
     
     try:
@@ -105,12 +127,11 @@ def load_data(sheet_name):
 
     df = standardize_columns(df)
 
-    # [수치 변환 강화] 지수 표기법(1.5E+08) 및 콤마 대응
+    # [수치 변환] 콤마, 지수 등 처리
     numeric_candidates = ["보증금", "월차임", "권리금", "관리비", "면적", "층", "매매가", "수익률", "대지면적", "연면적"]
     
     for col in numeric_candidates:
         if col in df.columns:
-            # 문자열 변환 -> 콤마 제거 -> 수치 변환 (지수 표기법도 처리됨)
             df[col] = pd.to_numeric(
                 df[col].astype(str).str.replace(',', ''), 
                 errors='coerce'
@@ -118,7 +139,7 @@ def load_data(sheet_name):
     
     df = df.fillna("") 
 
-    # IronID 생성
+    # IronID 생성 (내부 식별용)
     if '선택' in df.columns: df = df.drop(columns=['선택'])
     if 'IronID' in df.columns: df = df.drop(columns=['IronID'])
     
@@ -128,7 +149,7 @@ def load_data(sheet_name):
     return df
 
 # [MODULE: UPDATE ENGINE]
-# 6. 데이터 쓰기 엔진 (정밀 매칭)
+# 6. 데이터 쓰기 엔진 (정밀 매칭 강화)
 def update_data(action_type, target_rows, source_sheet, target_sheet=None):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
@@ -140,24 +161,23 @@ def update_data(action_type, target_rows, source_sheet, target_sheet=None):
         src_df = conn.read(spreadsheet=SHEET_URL, worksheet=source_sheet, ttl=0)
         src_df = standardize_columns(src_df)
         
-        # '선택' 및 'IronID' 제거 (IronID는 로컬용)
+        # '선택' 및 'IronID' 제거
         target_rows_clean = target_rows.drop(columns=['선택', 'IronID'], errors='ignore')
         
         # 2. 정밀 매칭 (복합 키 + 내용 앞부분)
-        # 식별 키: 번지 + 금액 + 면적 + 내용(앞 10자)
-        match_cols = ['번지', '층', '면적', '보증금', '매매가', '내용']
+        match_cols = ['번지', '층', '면적', '보증금', '매매가', '월차임', '내용']
         valid_keys = [k for k in match_cols if k in src_df.columns and k in target_rows_clean.columns]
         
         if not valid_keys:
-            return False, "❌ 데이터 식별 실패: 고유값(번지 등) 컬럼이 부족합니다."
+            return False, "❌ 데이터 식별 실패: 고유값 컬럼이 부족합니다."
 
-        # 매칭을 위한 임시 컬럼 생성 (내용 10글자 등)
+        # 매칭용 임시 키 생성 함수
         def prepare_match_key(df):
             temp_df = df.copy()
             for k in valid_keys:
+                # 내용은 앞 10글자만 따서 비교 (줄바꿈/공백 차이 완화)
                 if k == '내용':
-                    # 내용은 앞 10글자만 따서 비교 (오타/공백 차이 최소화)
-                    temp_df[k] = temp_df[k].astype(str).str[:10]
+                    temp_df[k] = temp_df[k].astype(str).str.replace(r'\s+', '', regex=True).str[:10]
                 else:
                     temp_df[k] = temp_df[k].astype(str).str.replace(',', '').str.strip()
             return temp_df
@@ -168,7 +188,6 @@ def update_data(action_type, target_rows, source_sheet, target_sheet=None):
         # 3. 로직 분기
         if action_type == "delete" or action_type == "move":
             # 병합하여 삭제 대상 식별
-            # 원본(src)과 타겟(tgt)을 키 기준으로 병합
             merged = src_prep.merge(
                 tgt_prep[valid_keys], 
                 on=valid_keys, 
@@ -177,12 +196,12 @@ def update_data(action_type, target_rows, source_sheet, target_sheet=None):
             )
             
             # _merge == 'left_only' 인 행들만 남김 (삭제 대상 제외)
-            # 주의: 인덱스가 섞일 수 있으므로 원본 src_df를 필터링
             rows_to_keep_mask = merged['_merge'] == 'left_only'
             new_src_df = src_df[rows_to_keep_mask]
             
+            # 변화가 없으면 매칭 실패
             if len(new_src_df) == len(src_df):
-                return False, "❌ 일치하는 데이터를 찾지 못했습니다. (이미 변경되었을 수 있음)"
+                return False, "❌ 일치하는 데이터를 찾지 못했습니다. (데이터가 이미 변경되었을 수 있음)"
 
             # 이동: 타겟에 추가
             if action_type == "move" and target_sheet:
@@ -233,20 +252,22 @@ with st.sidebar:
         safe_reset()
     st.caption("Developed by Gemini & Pro-Mode")
 
+# 데이터 로드
 df_main = load_data(st.session_state.current_sheet)
 if df_main is None:
     st.error(f"🚨 '{st.session_state.current_sheet}' 로드 실패. GID를 확인하세요.")
     st.stop()
 
 # [MODULE: FRAGMENT UI]
-# 8. 메인 프래그먼트
+# 8. 메인 프래그먼트 (깜빡임 방지 핵심)
 @st.fragment
 def main_interface():
+    # Helper Functions
     def get_max_if_exists(col):
         if col in df_main.columns and not df_main.empty:
             val = df_main[col].max()
-            return float(val) if val > 0 else 100.0
-        return None
+            return float(val) if pd.notnull(val) and val > 0 else 0.0 # Fix: NaN/Empty -> 0.0
+        return 0.0
 
     def sess(key, default):
         if key not in st.session_state: st.session_state[key] = default
@@ -291,7 +312,7 @@ def main_interface():
             with r1:
                 st.markdown("##### 💰 매매가 (만원)")
                 max_price = get_max_if_exists("매매가")
-                if max_price:
+                if max_price > 0:
                     c_a, c_b = st.columns(2)
                     c_a.number_input("최소", step=1000.0, key='min_price', value=sess('min_price', 0.0))
                     c_b.number_input("최대", step=1000.0, key='max_price', value=sess('max_price', max_price))
@@ -299,7 +320,7 @@ def main_interface():
             with r2:
                 st.markdown("##### 📊 수익률(%)")
                 max_yield = get_max_if_exists("수익률")
-                if max_yield:
+                if max_yield > 0:
                     c_a, c_b = st.columns(2)
                     c_a.number_input("최소", step=0.1, key='min_yield', value=sess('min_yield', 0.0))
                     c_b.number_input("최대", step=0.1, key='max_yield', value=sess('max_yield', 20.0))
@@ -309,39 +330,39 @@ def main_interface():
                 max_land = get_max_if_exists("대지면적")
                 max_total = get_max_if_exists("연면적")
                 c_a, c_b = st.columns(2)
-                if max_land: c_a.number_input("대지 최소", step=1.0, key='min_land', value=sess('min_land', 0.0))
-                if max_land: c_b.number_input("대지 최대", step=1.0, key='max_land', value=sess('max_land', max_land))
+                if max_land > 0: c_a.number_input("대지 최소", step=1.0, key='min_land', value=sess('min_land', 0.0))
+                if max_land > 0: c_b.number_input("대지 최대", step=1.0, key='max_land', value=sess('max_land', max_land))
                 c_c, c_d = st.columns(2)
-                if max_total: c_c.number_input("연면 최소", step=1.0, key='min_total', value=sess('min_total', 0.0))
-                if max_total: c_d.number_input("연면 최대", step=1.0, key='max_total', value=sess('max_total', max_total))
+                if max_total > 0: c_c.number_input("연면 최소", step=1.0, key='min_total', value=sess('min_total', 0.0))
+                if max_total > 0: c_d.number_input("연면 최대", step=1.0, key='max_total', value=sess('max_total', max_total))
         else:
             with r1:
                 st.markdown("##### 💰 보증금/월세 (만원)")
                 max_dep = get_max_if_exists("보증금")
                 max_rent = get_max_if_exists("월차임")
                 c_a, c_b = st.columns(2)
-                if max_dep: c_a.number_input("보증금 최소", step=500.0, key='min_dep', value=sess('min_dep', 0.0))
-                if max_dep: c_b.number_input("보증금 최대", step=500.0, key='max_dep', value=sess('max_dep', max_dep))
+                if max_dep > 0: c_a.number_input("보증금 최소", step=500.0, key='min_dep', value=sess('min_dep', 0.0))
+                if max_dep > 0: c_b.number_input("보증금 최대", step=500.0, key='max_dep', value=sess('max_dep', max_dep))
                 c_c, c_d = st.columns(2)
-                if max_rent: c_c.number_input("월세 최소", step=10.0, key='min_rent', value=sess('min_rent', 0.0))
-                if max_rent: c_d.number_input("월세 최대", step=10.0, key='max_rent', value=sess('max_rent', max_rent))
+                if max_rent > 0: c_c.number_input("월세 최소", step=10.0, key='min_rent', value=sess('min_rent', 0.0))
+                if max_rent > 0: c_d.number_input("월세 최대", step=10.0, key='max_rent', value=sess('max_rent', max_rent))
             with r2:
                 st.markdown("##### 🔑 권리금/관리비")
                 is_no_kwon = st.checkbox("무권리만", key='is_no_kwon')
                 max_kwon = get_max_if_exists("권리금")
                 max_man = get_max_if_exists("관리비")
                 c_a, c_b = st.columns(2)
-                if max_kwon: c_a.number_input("권리금 최소", step=100.0, key='min_kwon', disabled=is_no_kwon, value=sess('min_kwon', 0.0))
-                if max_kwon: c_b.number_input("권리금 최대", step=100.0, key='max_kwon', disabled=is_no_kwon, value=sess('max_kwon', max_kwon))
+                if max_kwon > 0: c_a.number_input("권리금 최소", step=100.0, key='min_kwon', disabled=is_no_kwon, value=sess('min_kwon', 0.0))
+                if max_kwon > 0: c_b.number_input("권리금 최대", step=100.0, key='max_kwon', disabled=is_no_kwon, value=sess('max_kwon', max_kwon))
                 c_c, c_d = st.columns(2)
-                if max_man: c_c.number_input("관리비 최소", step=5.0, key='min_man', value=sess('min_man', 0.0))
-                if max_man: c_d.number_input("관리비 최대", step=5.0, key='max_man', value=sess('max_man', max_man))
+                if max_man > 0: c_c.number_input("관리비 최소", step=5.0, key='min_man', value=sess('min_man', 0.0))
+                if max_man > 0: c_d.number_input("관리비 최대", step=5.0, key='max_man', value=sess('max_man', max_man))
             with r3:
                 st.markdown("##### 📐 면적 (평)")
                 max_area = get_max_if_exists("면적")
                 c_a, c_b = st.columns(2)
-                if max_area: c_a.number_input("면적 최소", step=5.0, key='min_area', value=sess('min_area', 0.0))
-                if max_area: c_b.number_input("면적 최대", step=5.0, key='max_area', value=sess('max_area', max_area))
+                if max_area > 0: c_a.number_input("면적 최소", step=5.0, key='min_area', value=sess('min_area', 0.0))
+                if max_area > 0: c_b.number_input("면적 최대", step=5.0, key='max_area', value=sess('max_area', max_area))
 
     # --- FILTER LOGIC ---
     df_filtered = df_main.copy()
@@ -383,27 +404,29 @@ def main_interface():
         mask = search_scope.fillna("").astype(str).apply(lambda x: ' '.join(x), axis=1).str.contains(search_val, case=False)
         df_filtered = df_filtered[mask]
 
-    # --- LIST VIEW (Editable Enabled) ---
+    # --- LIST VIEW ---
     if len(df_filtered) == 0:
         st.warning("🔍 검색 결과가 없습니다.")
     else:
         st.info(f"📋 **{st.session_state.current_sheet}** 검색 결과: **{len(df_filtered)}**건")
 
-    # [수정] 편집 모드 개방: 중요 컬럼은 수정 가능하게 설정
+    # [편집 권한 개방]
     editable_cols = ["내용", "보증금", "월차임", "매매가", "권리금", "관리비"]
-    # 선택 + 편집 가능 컬럼을 제외한 나머지만 disabled
     disabled_cols = [c for c in df_filtered.columns if c not in ['선택'] + editable_cols]
     
+    # IronID 컬럼 숨기기 수정 (None 사용)
     col_cfg = {
         "선택": st.column_config.CheckboxColumn(width="small"),
-        "IronID": st.column_config.Column(hidden=True)
+        "IronID": None
     }
-    # 동적 포맷팅
+    
     if "매매가" in df_filtered.columns: col_cfg["매매가"] = st.column_config.NumberColumn("매매가(만)", format="%d")
     if "보증금" in df_filtered.columns: col_cfg["보증금"] = st.column_config.NumberColumn("보증금(만)", format="%d")
     if "월차임" in df_filtered.columns: col_cfg["월차임"] = st.column_config.NumberColumn("월세(만)", format="%d")
     if "권리금" in df_filtered.columns: col_cfg["권리금"] = st.column_config.NumberColumn("권리금(만)", format="%d")
     if "면적" in df_filtered.columns: col_cfg["면적"] = st.column_config.NumberColumn("면적(평)", format="%.1f")
+    if "대지면적" in df_filtered.columns: col_cfg["대지면적"] = st.column_config.NumberColumn("대지(평)", format="%.1f")
+    if "연면적" in df_filtered.columns: col_cfg["연면적"] = st.column_config.NumberColumn("연면(평)", format="%.1f")
     if "수익률" in df_filtered.columns: col_cfg["수익률"] = st.column_config.NumberColumn("수익률", format="%.2f%%")
     if "내용" in df_filtered.columns: col_cfg["내용"] = st.column_config.TextColumn("특징", width="large")
 
@@ -411,16 +434,13 @@ def main_interface():
     
     edited_df = st.data_editor(
         df_filtered,
-        disabled=disabled_cols, # 수정 가능 컬럼 개방
+        disabled=disabled_cols,
         use_container_width=True,
         hide_index=True,
         height=600,
         column_config=col_cfg,
         key=editor_key
     )
-    
-    # *참고: 현재 UI 상에서 수정은 가능하지만, '저장' 버튼을 만들지 않았으므로
-    # 수정된 내용이 구글 시트에 즉시 반영되지는 않습니다. (추후 Phase 4에서 구현 가능)*
 
     # --- ACTION BAR ---
     st.divider()
@@ -431,6 +451,7 @@ def main_interface():
         st.success(f"✅ {selected_count}건 선택됨")
         
         ac1, ac2, ac3 = st.columns(3)
+        
         current_tab = st.session_state.current_sheet
         base_tab = current_tab.replace("(종료)", "").replace("브리핑", "").strip()
         target_end_tab = f"{base_tab}(종료)"
