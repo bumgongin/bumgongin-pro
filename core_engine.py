@@ -1,6 +1,6 @@
 # core_engine.py
-# 범공인 Pro v24 Enterprise - Core Data Engine Module (v24.24.1)
-# Feature: Advanced Header Synonyms & Regex Data Sanitization
+# 범공인 Pro v24 Enterprise - Core Data Engine Module (v24.24.3)
+# Feature: Enhanced Synonyms & Robust Regex Sanitization
 
 import streamlit as st
 import pandas as pd
@@ -33,19 +33,19 @@ STRING_COLS = ["구분", "지역_구", "지역_동", "번지", "건물명", "내
 REQUIRED_COLS = ["번지"]
 
 # ==============================================================================
-# [SECTION 2: DATA SANITIZATION ENGINE (ENHANCED)]
+# [SECTION 2: DATA SANITIZATION ENGINE]
 # ==============================================================================
 
 def normalize_headers(df):
     """
     구글 시트 헤더를 표준화합니다.
-    동의어 사전을 대폭 확장하여 실무 용어에 대응합니다.
+    동의어 사전을 확장하여 실무 용어에 대응합니다.
     """
     df.columns = df.columns.str.replace(' ', '').str.strip()
     synonym_map = {
         "보증금": ["보증금(만원)", "기보증금(만원)", "기보증금", "보증금", "보증"],
         "월차임": ["월차임(만원)", "기월세(만원)", "월세(만원)", "월세", "기월세", "차임"],
-        "권리금": ["권리금_입금가(만원)", "권리금(만원)", "권리금"],
+        "권리금": ["권리금_입금가(만원)", "권리금(만원)", "권리금", "권리", "시설권리"],
         "관리비": ["관리비(만원)", "관리비"],
         "매매가": ["매매가(만원)", "매매금액(만원)", "매매금액", "매매가", "매가", "매매"],
         "면적": ["전용면적(평)", "실평수", "전용면적", "면적"],
@@ -68,14 +68,14 @@ def normalize_headers(df):
 
 def sanitize_dataframe(df):
     """
-    데이터프레임 값을 강력하게 정제합니다.
-    [핵심 수정] 정규표현식을 사용하여 숫자형 컬럼에서 '만원', '평', '층' 등 불순물을 강제로 제거합니다.
+    데이터프레임 값을 정제합니다.
+    숫자 컬럼은 정규식을 사용하여 숫자와 소수점을 제외한 모든 문자를 제거합니다.
     """
     for col in NUMERIC_COLS:
         if col in df.columns:
             try:
                 # 1. 문자열로 변환
-                # 2. 정규식: 숫자(0-9)와 소수점(.)을 제외한 모든 문자 제거
+                # 2. 정규식: 숫자(0-9)와 소수점(.)을 제외한 모든 문자 제거 (만원, 층, 평, 콤마 등 삭제)
                 # 3. 빈 문자열이 되면 NaN 처리 후 0으로 채움
                 cleaned_series = df[col].astype(str).str.replace(r'[^0-9.]', '', regex=True)
                 df[col] = pd.to_numeric(cleaned_series, errors='coerce').fillna(0)
@@ -156,7 +156,7 @@ def load_sheet_data(sheet_name):
         df = normalize_headers(df)
         df = sanitize_dataframe(df)
         
-        # 시스템 컬럼 제거 (로드 시 불필요한 컬럼 정리)
+        # 시스템 컬럼 제거
         drop_cols = [c for c in ['선택', 'IronID', 'Unnamed: 0'] if c in df.columns]
         df = df.drop(columns=drop_cols, errors='ignore')
         
@@ -184,10 +184,12 @@ def create_match_signature(df, keys):
         try:
             if k in NUMERIC_COLS:
                 # 숫자형: 소수점 첫째자리까지 반올림 후 문자열 변환 (콤마 제거 포함)
-                val = pd.to_numeric(temp_df[k].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+                # 정규식을 사용하여 숫자 외 문자 제거 후 처리
+                val_str = temp_df[k].astype(str).str.replace(r'[^0-9.]', '', regex=True)
+                val = pd.to_numeric(val_str, errors='coerce').fillna(0)
                 temp_df['_match_sig'] += val.round(1).astype(str).str.replace(r'\.0$', '', regex=True) + "|"
             else:
-                # 문자형: 특수문자 제거, 앞 20글자만 사용 (긴 텍스트 오차 방지)
+                # 문자형: 특수문자 제거, 앞 20글자만 사용
                 val = temp_df[k].astype(str).str[:20] if k == '내용' else temp_df[k].astype(str)
                 temp_df['_match_sig'] += val.str.replace(r'[^가-힣a-zA-Z0-9]', '', regex=True) + "|"
         except: continue
@@ -204,38 +206,41 @@ def update_single_row(updated_row, sheet_name):
     """
     conn = st.connection("gsheets", type=GSheetsConnection)
     try:
-        # 1. 서버 데이터 로드 (TTL=0: 최신 데이터 강제)
+        # 1. 서버 데이터 로드
         sheet_data = normalize_headers(conn.read(spreadsheet=SHEET_URL, worksheet=sheet_name, ttl=0))
         
-        # 2. 매칭 키 설정 (불변 가능성이 높은 컬럼 조합)
+        # 2. 매칭 키 설정
         match_keys = ['번지', '층', '면적'] 
         valid_keys = [k for k in match_keys if k in sheet_data.columns and k in updated_row]
         
         if len(valid_keys) < 2: 
             return False, "식별 키 부족 (번지/층/면적 필수)"
         
-        # 3. 로컬 데이터 서명 생성 (단일 행)
+        # 3. 로컬 데이터 서명 생성
         local_sig = ""
         for k in valid_keys:
-             val = str(updated_row.get(k, '')).replace(',', '').strip()
+             val_str = str(updated_row.get(k, ''))
              if k in NUMERIC_COLS:
-                 try: val = str(round(float(val), 1)).replace('.0', '')
+                 # 정규식으로 숫자만 추출
+                 val_clean = re.sub(r'[^0-9.]', '', val_str)
+                 try: val = str(round(float(val_clean), 1)).replace('.0', '')
                  except: val = "0"
              else:
-                 val = re.sub(r'[^가-힣a-zA-Z0-9]', '', val)
+                 val = re.sub(r'[^가-힣a-zA-Z0-9]', '', val_str)
              local_sig += val + "|"
              
-        # 4. 서버 데이터 서명 생성 (전체 행)
+        # 4. 서버 데이터 서명 생성
         server_sigs = []
         for _, row in sheet_data.iterrows():
             sig = ""
             for k in valid_keys:
-                val = str(row.get(k, '')).replace(',', '').strip()
+                val_str = str(row.get(k, ''))
                 if k in NUMERIC_COLS:
-                    try: val = str(round(float(val), 1)).replace('.0', '')
+                    val_clean = re.sub(r'[^0-9.]', '', val_str)
+                    try: val = str(round(float(val_clean), 1)).replace('.0', '')
                     except: val = "0"
                 else:
-                    val = re.sub(r'[^가-힣a-zA-Z0-9]', '', val)
+                    val = re.sub(r'[^가-힣a-zA-Z0-9]', '', val_str)
                 sig += val + "|"
             server_sigs.append(sig)
             
@@ -246,16 +251,15 @@ def update_single_row(updated_row, sheet_name):
             # 값 덮어쓰기
             for k, v in updated_row.items():
                 if k in sheet_data.columns and k not in ['선택', 'IronID']:
-                    # 숫자형 데이터 안전 변환
                     if k in NUMERIC_COLS:
                         try: 
-                            # 정규식 정제 로직과 동일하게 처리
+                            # 정규식 정제 로직 적용
                             v_str = re.sub(r'[^0-9.]', '', str(v))
                             v = float(v_str) if v_str else 0.0
                         except: v = 0.0
                     sheet_data.at[target_idx, k] = v
             
-            # 6. 구글 시트 저장
+            # 6. 저장
             conn.update(spreadsheet=SHEET_URL, worksheet=sheet_name, data=sheet_data)
             return True, "✅ 수정 사항이 저장되었습니다."
             
@@ -275,7 +279,6 @@ def save_updates_to_sheet(edited_df, original_df, sheet_name):
         df_org = original_df.set_index('IronID')
         df_new = edited_df.set_index('IronID')
         
-        # '선택' 컬럼 제외하고 비교
         changed_ids = []
         for iid in df_org.index.intersection(df_new.index):
             row_org = df_org.loc[iid].drop(['선택'], errors='ignore').astype(str)
@@ -285,30 +288,23 @@ def save_updates_to_sheet(edited_df, original_df, sheet_name):
         
         if not changed_ids: return True, "변경 사항이 없습니다.", None
 
-        # 2. 재시도 로직 (Optimistic Locking 시도)
+        # 2. 재시도 로직
         for attempt in range(3):
             try:
-                # 최신 서버 데이터 로드
                 sheet_data = normalize_headers(conn.read(spreadsheet=SHEET_URL, worksheet=sheet_name, ttl=0))
-                
-                # 매칭 키 설정
                 valid_keys = [k for k in ['번지', '층', '면적', '매매가', '보증금'] if k in sheet_data.columns and k in df_org.columns]
                 if len(valid_keys) < 2: return False, "식별 키 부족", None
 
-                # 서명 생성
                 target_sigs = create_match_signature(df_org.loc[changed_ids].reset_index(), valid_keys)['_match_sig'].tolist()
                 server_sigs = create_match_signature(sheet_data, valid_keys)
                 
-                # 매칭 및 업데이트
                 update_count = 0
                 for idx, sig in zip(target_sigs, changed_ids):
-                    # 서버 데이터에서 해당 서명을 가진 행 찾기
                     match_indices = server_sigs.index[server_sigs['_match_sig'] == idx].tolist()
                     if match_indices:
-                        match_idx = match_indices[0] # 첫 번째 매칭 사용
+                        match_idx = match_indices[0]
                         for col in sheet_data.columns:
                             if col in df_new.columns: 
-                                # 값 업데이트 (숫자 변환 포함)
                                 val = df_new.loc[sig, col]
                                 if col in NUMERIC_COLS:
                                     try: 
@@ -318,20 +314,18 @@ def save_updates_to_sheet(edited_df, original_df, sheet_name):
                                 sheet_data.at[match_idx, col] = val
                         update_count += 1
                 
-                if update_count == 0: return False, "원본 데이터 매칭 실패 (서버 데이터가 변경됨)", None
+                if update_count == 0: return False, "원본 데이터 매칭 실패", None
                 
-                # 무결성 검증
                 is_valid, msg = validate_data_integrity(sheet_data)
                 if not is_valid: return False, f"무결성 오류: {msg}", None
                 
-                # 저장
                 conn.update(spreadsheet=SHEET_URL, worksheet=sheet_name, data=sheet_data)
                 return True, f"✅ {update_count}건 저장 완료!", None
                 
             except Exception as e:
                 time.sleep(attempt + 1)
                 last_err = e
-                continue # 재시도
+                continue
                 
         return False, f"🚨 재시도 실패: {last_err}", None
         
@@ -360,37 +354,29 @@ def execute_transaction(action_type, target_rows, source_sheet, target_sheet=Non
 
         # 4. 액션 분기
         if action_type in ["delete", "move", "restore"]:
-            # 소스에서 제거 (서명이 일치하지 않는 행만 남김)
+            # 소스에서 제거
             new_src = src_df[~src_sig['_match_sig'].isin(sigs)]
             
             if len(src_df) == len(new_src): 
                 return False, "매칭 실패 (이미 삭제되었거나 변경됨)", pd.DataFrame({"Target": sigs[:1], "Server": src_sig['_match_sig'].iloc[:1]})
             
-            # 이동/복구의 경우 타겟 시트에 추가
+            # 이동/복구: 타겟 시트에 추가
             if action_type in ["move", "restore"] and target_sheet:
                 tgt_df = normalize_headers(conn.read(spreadsheet=SHEET_URL, worksheet=target_sheet, ttl=0))
-                # 컬럼 순서 맞추기 (선택적)
                 common_cols = [c for c in src_df.columns if c in tgt_df.columns]
-                # 데이터 병합
                 new_tgt = pd.concat([tgt_df, target_clean[common_cols]], ignore_index=True)
                 
-                # 무결성 검증
                 is_valid, msg = validate_data_integrity(new_tgt)
                 if not is_valid: return False, msg, None
                 
-                # 타겟 시트 업데이트
                 conn.update(spreadsheet=SHEET_URL, worksheet=target_sheet, data=new_tgt)
             
-            # 소스 시트 업데이트 (삭제 반영)
+            # 소스 시트 업데이트
             conn.update(spreadsheet=SHEET_URL, worksheet=source_sheet, data=new_src)
             return True, f"✅ {action_type} 처리 완료", None
         
         elif action_type == "copy":
-            # 타겟 시트 로드
             tgt_df = normalize_headers(conn.read(spreadsheet=SHEET_URL, worksheet=target_sheet, ttl=0))
-            
-            # 데이터 병합 (중복 검사 없이 단순 추가 - 요청사항)
-            # 필요 시 중복 검사 로직 추가 가능
             common_cols = [c for c in src_df.columns if c in tgt_df.columns]
             new_tgt = pd.concat([tgt_df, target_clean[common_cols]], ignore_index=True)
             
