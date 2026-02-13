@@ -1,27 +1,30 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.23.5)
-# Feature: Map, Detail Edit, List/Card Sync, Full Integration
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.24.0)
+# Final Integration: API Compliance & Mobile UX Polish
 
 import streamlit as st
 import pandas as pd
 import time
 import math
 import core_engine as engine  # [Core Engine v24.23.5]
-import map_service as map_api # [Map Service v24.23.5]
-import styles                 # [Style Module v24.22.6] (기존 스타일 사용)
+import map_service as map_api # [Map Service v24.23.7]
+import styles                 # [Style Module v24.23.7]
 
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
-st.set_page_config(page_title="범공인 Pro (v24.23.5)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="범공인 Pro (v24.24.0)", layout="wide", initial_sidebar_state="expanded")
 styles.apply_custom_css()
 
+# 상태 변수 초기화
 if 'current_sheet' not in st.session_state: st.session_state.current_sheet = engine.SHEET_NAMES[0]
 if 'action_status' not in st.session_state: st.session_state.action_status = None 
 if 'view_mode' not in st.session_state: st.session_state.view_mode = '🗂️ 카드 모드'
 if 'page_num' not in st.session_state: st.session_state.page_num = 1
 if 'selected_item' not in st.session_state: st.session_state.selected_item = None 
+if 'zoom_level' not in st.session_state: st.session_state.zoom_level = 16 
 
+# 스마트 필터 토글
 if 'show_cat_search' not in st.session_state: st.session_state.show_cat_search = False
 if 'show_gu_search' not in st.session_state: st.session_state.show_gu_search = False
 if 'show_dong_search' not in st.session_state: st.session_state.show_dong_search = False
@@ -47,6 +50,7 @@ with st.sidebar:
             st.session_state.editor_key_version += 1
             st.session_state.page_num = 1
             st.session_state.selected_item = None
+            st.session_state.zoom_level = 16
             if 'df_main' in st.session_state: del st.session_state.df_main
             
             keys_to_clear = [k for k in st.session_state.keys() if k.startswith("chk_")]
@@ -123,7 +127,7 @@ st.title("🏙️ 범공인 매물장 (Pro)")
 @st.fragment
 def main_list_view():
     # --------------------------------------------------------------------------
-    # [DETAIL VIEW]
+    # [DETAIL VIEW] Edit Mode with Map
     # --------------------------------------------------------------------------
     if st.session_state.selected_item is not None:
         item = st.session_state.selected_item
@@ -132,11 +136,25 @@ def main_list_view():
         c_title.markdown(f"### {item.get('건물명', '매물 상세')}")
 
         addr_full = f"{item.get('지역_구', '')} {item.get('지역_동', '')} {item.get('번지', '')}"
+        
+        # [MAP & ZOOM CONTROLLER]
         with st.container():
-            st.caption(f"📍 {addr_full}")
+            c_info, c_zoom = st.columns([3, 1])
+            c_info.caption(f"📍 {addr_full}")
+            
+            # Zoom Buttons (API Fix: kind -> type)
+            z_minus, z_plus = c_zoom.columns(2)
+            if z_minus.button("－", key="zoom_out", use_container_width=True, type="secondary"):
+                if st.session_state.zoom_level > 10: st.session_state.zoom_level -= 1
+                st.rerun()
+            if z_plus.button("＋", key="zoom_in", use_container_width=True, type="secondary"):
+                if st.session_state.zoom_level < 19: st.session_state.zoom_level += 1
+                st.rerun()
+            
             lat, lng = map_api.get_naver_geocode(addr_full)
             if lat and lng:
-                map_img = map_api.fetch_map_image(lat, lng)
+                # Fetch map with current zoom level
+                map_img = map_api.fetch_map_image(lat, lng, zoom_level=st.session_state.zoom_level)
                 if map_img: st.image(map_img, use_column_width=True)
                 else: st.warning("지도 로드 실패")
             else: st.warning("위치 확인 불가")
@@ -171,6 +189,7 @@ def main_list_view():
             new_desc = st.text_area("특징", value=item.get('내용', ''), height=100)
             new_memo = st.text_area("비고", value=item.get('비고', ''), height=60)
 
+            # Save Button (API Fix: kind -> type)
             if st.form_submit_button("💾 수정 완료", type="primary", use_container_width=True):
                 updated_data = item.copy()
                 updated_data.update({'구분': new_cat, '건물명': new_name, '면적': new_area, '층': new_floor, '내용': new_desc, '비고': new_memo})
@@ -185,7 +204,7 @@ def main_list_view():
         return
 
     # --------------------------------------------------------------------------
-    # [LIST VIEW]
+    # [LIST VIEW] Filter & Pagination
     # --------------------------------------------------------------------------
     df_filtered = df_main.copy()
     if '구분' in df_filtered.columns and st.session_state.selected_cat: df_filtered = df_filtered[df_filtered['구분'].isin(st.session_state.selected_cat)]
@@ -222,6 +241,9 @@ def main_list_view():
     
     st.info(f"📋 검색 결과: **{total_count}**건 (페이지: {st.session_state.page_num}/{total_pages})")
 
+    # ==========================================================================
+    # [VIEW MODE A] CARD VIEW
+    # ==========================================================================
     if st.session_state.view_mode == '🗂️ 카드 모드':
         c_act1, c_act2 = st.columns(2)
         if c_act1.button("✅ 전체 선택", key="sel_all_card"):
@@ -277,8 +299,11 @@ def main_list_view():
                     <div class="card-row-3">📐 {spec}</div>
                 </div>""", unsafe_allow_html=True)
                 
-                if c_btn.button("상세", key=f"btn_detail_{row['IronID']}"):
-                    st.session_state.selected_item = row; st.rerun()
+                # Mobile Optimized Detail Button (Wrapped for Full Width)
+                with c_btn.container():
+                    # styles.py의 .card-btn-container 타겟팅됨 (모바일에서 width: 100%)
+                    if st.button("상세", key=f"btn_detail_{row['IronID']}", use_container_width=True):
+                        st.session_state.selected_item = row; st.rerun()
         
         c_prev, c_page, c_next = st.columns([1, 1, 1])
         if c_prev.button("◀", key="prev_card"):
@@ -287,6 +312,9 @@ def main_list_view():
         if c_next.button("▶", key="next_card"):
             if st.session_state.page_num < total_pages: st.session_state.page_num += 1; st.rerun()
 
+    # ==========================================================================
+    # [VIEW MODE B] LIST VIEW
+    # ==========================================================================
     else:
         c_act1, c_act2 = st.columns(2)
         if c_act1.button("✅ 전체 선택", key="sel_all_list"):
@@ -297,19 +325,40 @@ def main_list_view():
             st.session_state.df_main['선택'] = False
             st.session_state.editor_key_version += 1; st.rerun()
 
-        col_cfg = {"선택": st.column_config.CheckboxColumn(width="small"), "IronID": None}
+        # [LIST VIEW TRIGGER] '🔍' Column
+        df_list_view = df_page.copy()
+        df_list_view.insert(0, '🔍', False)
+
+        col_cfg = {
+            "🔍": st.column_config.CheckboxColumn(width="small", label="상세"),
+            "선택": st.column_config.CheckboxColumn(width="small"), 
+            "IronID": None
+        }
         format_map = {"매매가": "%d", "보증금": "%d", "월차임": "%d", "권리금": "%d", "면적": "%.1f", "대지면적": "%.1f", "연면적": "%.1f"}
         for col, fmt in format_map.items():
             if col in df_filtered.columns: col_cfg[col] = st.column_config.NumberColumn(col, format=fmt)
         if "내용" in df_filtered.columns: col_cfg["내용"] = st.column_config.TextColumn("특징", width="large")
         
         cols = ["내용", "보증금", "월차임", "매매가", "권리금", "관리비"]
-        dis_cols = [c for c in df_filtered.columns if c not in ['선택'] + cols]
+        dis_cols = [c for c in df_filtered.columns if c not in ['선택', '🔍'] + cols]
         
         edited_df = st.data_editor(
-            df_page, disabled=dis_cols, use_container_width=True, hide_index=True, column_config=col_cfg,
-            key=f"editor_{st.session_state.editor_key_version}", height=400, num_rows="fixed"
+            df_list_view,
+            disabled=dis_cols,
+            use_container_width=True,
+            hide_index=True,
+            column_config=col_cfg,
+            key=f"editor_{st.session_state.editor_key_version}",
+            height=400, 
+            num_rows="fixed"
         )
+        
+        # [TRIGGER DETECTOR]
+        trigger_rows = edited_df[edited_df['🔍'] == True]
+        if not trigger_rows.empty:
+            target_row = df_main[df_main['IronID'] == trigger_rows.iloc[0]['IronID']].iloc[0]
+            st.session_state.selected_item = target_row
+            st.rerun()
         
         c_prev, c_page, c_next = st.columns([1, 1, 1])
         if c_prev.button("◀", key="prev_list"):
@@ -321,15 +370,22 @@ def main_list_view():
         st.divider()
         if st.button("💾 변경사항 저장 (서버 반영)", type="primary", use_container_width=True, key="btn_save"):
             with st.status("💾 저장 중...", expanded=True) as status:
-                success, msg, debug = engine.save_updates_to_sheet(edited_df, st.session_state.df_main, st.session_state.current_sheet)
+                save_df = edited_df.drop(columns=['🔍'], errors='ignore')
+                success, msg, debug = engine.save_updates_to_sheet(save_df, st.session_state.df_main, st.session_state.current_sheet)
                 if success:
                     status.update(label="완료!", state="complete"); st.success(msg); time.sleep(1.0)
                     if 'df_main' in st.session_state: del st.session_state.df_main
                     st.cache_data.clear(); st.rerun()
                 else: st.error(msg)
     
+    # --- UNIVERSAL ACTION BAR ---
     st.divider()
-    selected_rows = st.session_state.df_main[st.session_state.df_main['선택'] == True]
+    if st.session_state.view_mode == '📋 리스트 모드':
+        try: selected_rows = edited_df[edited_df['선택'] == True].drop(columns=['🔍'], errors='ignore')
+        except: selected_rows = pd.DataFrame()
+    else:
+        selected_rows = st.session_state.df_main[st.session_state.df_main['선택'] == True]
+        
     if len(selected_rows) > 0:
         st.success(f"✅ {len(selected_rows)}건 선택됨")
         cur_tab = st.session_state.current_sheet
@@ -354,27 +410,27 @@ def main_list_view():
         if st.session_state.action_status == 'move_confirm':
             target = f"{base_tab}(종료)"
             with st.status(f"🚀 이동 중...", expanded=True):
-                if st.button("확인", key="conf_move"):
+                if st.button("확인", key="conf_move", type="primary"):
                     _, msg, _ = engine.execute_transaction("move", selected_rows, cur_tab, target)
                     st.success(msg); time.sleep(1); del st.session_state.df_main; engine.safe_reset()
 
         elif st.session_state.action_status == 'restore_confirm':
             with st.status(f"♻️ 복구 중...", expanded=True):
-                if st.button("확인", key="conf_restore"):
+                if st.button("확인", key="conf_restore", type="primary"):
                     _, msg, _ = engine.execute_transaction("restore", selected_rows, cur_tab, base_tab)
                     st.success(msg); time.sleep(1); del st.session_state.df_main; engine.safe_reset()
 
         elif st.session_state.action_status == 'copy_confirm':
             target = f"{base_tab}브리핑"
             with st.status(f"📋 복사 중...", expanded=True):
-                if st.button("확인", key="conf_copy"):
+                if st.button("확인", key="conf_copy", type="primary"):
                     _, msg, _ = engine.execute_transaction("copy", selected_rows, cur_tab, target)
                     st.success(msg); time.sleep(1); st.session_state.action_status = None
 
         elif st.session_state.action_status == 'delete_confirm':
             with st.status(f"🗑️ 삭제 중...", expanded=True):
                 st.error("복구 불가"); 
-                if st.button("확인", key="conf_del"):
+                if st.button("확인", key="conf_del", type="primary"):
                     _, msg, _ = engine.execute_transaction("delete", selected_rows, cur_tab)
                     st.success(msg); time.sleep(1); del st.session_state.df_main; engine.safe_reset()
 
