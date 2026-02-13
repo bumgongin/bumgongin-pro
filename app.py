@@ -1,6 +1,6 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.27.0)
-# Feature: Integrated 2-Button Analysis, Enhanced Visualization, Top 10 Anchors
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.27.1)
+# Feature: Visualization Bug Fix, Optimized UI Layout, Map Link Placement
 
 import streamlit as st
 import pandas as pd
@@ -9,12 +9,12 @@ import math
 import core_engine as engine  # [Core Engine v24.24.3]
 import map_service as map_api # [Map Service v24.23.7]
 import styles                 # [Style Module v24.23.7]
-import infra_engine           # [Infra Engine v24.27.0]
+import infra_engine           # [Infra Engine v24.27.1]
 
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
-st.set_page_config(page_title="범공인 Pro (v24.27.0)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="범공인 Pro (v24.27.1)", layout="wide", initial_sidebar_state="expanded")
 styles.apply_custom_css()
 
 # 상태 변수 초기화
@@ -43,7 +43,7 @@ def sess(key): return st.session_state[key]
 # ==============================================================================
 @st.cache_data(ttl=3600, show_spinner=False)
 def cached_commercial(lat, lng):
-    # v24.27.0: 통합 상권 분석 (지하철 포함)
+    # v24.27.1: 통합 상권 분석 (지하철 포함 + 하이브리드 검색)
     return infra_engine.get_commercial_analysis(lat, lng)
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -189,7 +189,7 @@ def main_list_view():
                 if map_img: st.image(map_img, use_column_width=True)
                 else: st.warning("지도 로드 실패")
                 
-                # [카카오맵 연동 - 지도 바로 아래 배치]
+                # [카카오맵 연동 - 지도 바로 아래 배치 v24.27.1]
                 st.link_button("📍 카카오맵에서 위치 크게보기", f"https://map.kakao.com/link/map/{item.get('건물명', '매물')},{lat},{lng}", use_container_width=True)
             else: st.warning("위치 확인 불가")
 
@@ -235,7 +235,7 @@ def main_list_view():
                     st.session_state.selected_item = None; st.cache_data.clear(); st.rerun()
                 else: st.error(msg)
         
-        # [INFRA ANALYSIS - V24.27.0 INTEGRATED 2-BUTTON SYSTEM]
+        # [INFRA ANALYSIS - V24.27.1 FIXED & ENHANCED]
         st.markdown("---")
         st.subheader("🏗️ 주변 인프라 분석 (반경 500~700m)")
         
@@ -270,7 +270,7 @@ def main_list_view():
                 c_data = st.session_state.infra_res_c
                 sub = c_data.get('subway', {})
                 
-                # 지하철 정보 뱃지
+                # [지하철 강조 뱃지]
                 if sub.get('station') and sub['station'] != "정보 없음":
                     st.success(f"**🚆 가장 가까운 역: {sub['station']} {sub.get('exit','')}** (직선 {sub['dist']}m / 도보 약 {sub['walk']}분)")
                 else:
@@ -279,7 +279,9 @@ def main_list_view():
                 c1, c2 = st.columns(2)
                 with c1:
                     st.markdown("##### 📈 10대 업종 밀집도")
-                    st.bar_chart(c_data['counts'], height=300, color="#FF8C00") # 오렌지색
+                    # [시각화 버그 수정] pd.Series로 변환하여 차트 데이터 누락 방지
+                    chart_data = pd.Series(c_data['counts'])
+                    st.bar_chart(chart_data, height=350, color="#FF8C00") # 오렌지색
                 
                 with c2:
                     st.markdown("##### 🏆 상권 Top 10 브랜드 리포트")
@@ -290,7 +292,7 @@ def main_list_view():
                 d_df = st.session_state.infra_res_d
                 
                 st.divider()
-                # 수요 요약 뱃지
+                # [배후수요 요약 뱃지]
                 office_cnt = len(d_df[d_df['구분'] == '업무시설']) if not d_df.empty and '구분' in d_df.columns else 0
                 school_cnt = len(d_df[d_df['구분'].str.contains('교육')]) if not d_df.empty and '구분' in d_df.columns else 0
                 
