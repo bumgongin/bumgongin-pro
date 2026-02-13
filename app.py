@@ -1,19 +1,19 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.22.4)
-# Feature: Responsive Cards, Text Sanitizer, Checkbox Integration
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.22.5)
+# Feature: Contextual Buttons, Checkbox Sync, Text Polish
 
 import streamlit as st
 import pandas as pd
 import time
 import math
 import core_engine as engine  # [Core Engine v24.21.2]
-import styles                 # [Style Module v24.22.4]
+import styles                 # [Style Module v24.22.5]
 
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
 st.set_page_config(
-    page_title="범공인 Pro (v24.22.4)",
+    page_title="범공인 Pro (v24.22.5)",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -189,10 +189,12 @@ def main_list_view():
     # [VIEW MODE A] CARD VIEW
     # ==========================================================================
     if st.session_state.view_mode == '🗂️ 카드 모드':
-        # Mass Action (Condensed)
+        # Mass Action (Synced & Page Only)
         c_act1, c_act2 = st.columns(2)
         if c_act1.button("✅ 전체 선택", key="sel_all_card"):
-            st.session_state.df_main.loc[st.session_state.df_main['IronID'].isin(df_page['IronID']), '선택'] = True
+            # 현재 페이지(df_page)의 ID만 선택 처리
+            target_ids = df_page['IronID'].tolist()
+            st.session_state.df_main.loc[st.session_state.df_main['IronID'].isin(target_ids), '선택'] = True
             st.rerun()
         if c_act2.button("⬜ 전체 해제", key="desel_all_card"):
             st.session_state.df_main['선택'] = False
@@ -201,7 +203,6 @@ def main_list_view():
         with st.container(height=500):
             for idx, row in df_page.iterrows():
                 # [Data Processing]
-                # 호실에서 '호' 제거 후 포맷팅
                 raw_ho = str(row.get('호실', '')).replace('호', '').strip()
                 ho_str = f"{raw_ho}호" if raw_ho else ""
                 
@@ -225,10 +226,11 @@ def main_list_view():
                     if row.get('현업종', ''): spec += f" / {row['현업종']}"
                 
                 # [Card + Checkbox Layout]
-                c_chk, c_card = st.columns([1, 15]) # 1:15 비율
+                c_chk, c_card = st.columns([1, 15]) 
                 
-                # Checkbox Logic
+                # Checkbox Logic (Sync with Session)
                 is_checked = st.session_state.df_main.loc[st.session_state.df_main['IronID'] == row['IronID'], '선택'].values[0]
+                # 체크박스 변경 시 즉시 리런
                 if c_chk.checkbox("", value=bool(is_checked), key=f"chk_{row['IronID']}") != is_checked:
                     st.session_state.df_main.loc[st.session_state.df_main['IronID'] == row['IronID'], '선택'] = not is_checked
                     st.rerun()
@@ -264,7 +266,8 @@ def main_list_view():
     else:
         c_act1, c_act2 = st.columns(2)
         if c_act1.button("✅ 전체 선택", key="sel_all_list"):
-            st.session_state.df_main.loc[st.session_state.df_main['IronID'].isin(df_page['IronID']), '선택'] = True
+            target_ids = df_page['IronID'].tolist() # 현재 페이지 대상
+            st.session_state.df_main.loc[st.session_state.df_main['IronID'].isin(target_ids), '선택'] = True
             st.session_state.editor_key_version += 1
             st.rerun()
         if c_act2.button("⬜ 전체 해제", key="desel_all_list"):
@@ -273,7 +276,7 @@ def main_list_view():
             st.rerun()
 
         col_cfg = {"선택": st.column_config.CheckboxColumn(width="small"), "IronID": None}
-        format_map = {"매매가": "%d", "보증금": "%d", "월차임": "%d", "권리금": "%d", "면적": "%.1f"}
+        format_map = {"매매가": "%d", "보증금": "%d", "월차임": "%d", "권리금": "%d", "면적": "%.1f", "대지면적": "%.1f", "연면적": "%.1f"}
         for col, fmt in format_map.items():
             if col in df_filtered.columns: col_cfg[col] = st.column_config.NumberColumn(col, format=fmt)
         if "내용" in df_filtered.columns: col_cfg["내용"] = st.column_config.TextColumn("특징", width="large")
@@ -309,7 +312,7 @@ def main_list_view():
                     st.cache_data.clear(); st.rerun()
                 else: st.error(msg)
     
-    # --- UNIVERSAL ACTION BAR ---
+    # --- UNIVERSAL ACTION BAR (Contextual) ---
     st.divider()
     selected_rows = st.session_state.df_main[st.session_state.df_main['선택'] == True]
     if len(selected_rows) > 0:
@@ -322,12 +325,12 @@ def main_list_view():
         with ac1:
             if "브리핑" in cur_tab: st.button("🚫", disabled=True, use_container_width=True)
             elif is_end:
-                if st.button(f"♻️ 복구", use_container_width=True): st.session_state.action_status = 'restore_confirm'
+                if st.button(f"♻️ 복구({base_tab})", use_container_width=True): st.session_state.action_status = 'restore_confirm'
             else:
-                if st.button(f"🚀 종료", use_container_width=True): st.session_state.action_status = 'move_confirm'
+                if st.button(f"🚀 {base_tab}(종료)", use_container_width=True): st.session_state.action_status = 'move_confirm'
         with ac2:
             if "브리핑" not in cur_tab:
-                if st.button(f"📋 복사", use_container_width=True): st.session_state.action_status = 'copy_confirm'
+                if st.button(f"📋 {base_tab}브리핑", use_container_width=True): st.session_state.action_status = 'copy_confirm'
             else: st.button("🚫", disabled=True, use_container_width=True)
         with ac3:
             if st.button("🗑️ 삭제", type="primary", use_container_width=True): st.session_state.action_status = 'delete_confirm'
