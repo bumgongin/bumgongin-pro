@@ -1,6 +1,6 @@
 # map_service.py
-# 범공인 Pro v24 Enterprise - Map Service Module (v24.23.5)
-# Feature: Naver Map API Integration (VPC Endpoint Enforced)
+# 범공인 Pro v24 Enterprise - Map Service Module (v24.23.7)
+# Feature: Naver Map API Integration (VPC Endpoint & Dynamic Zoom)
 
 import streamlit as st
 import requests
@@ -49,9 +49,9 @@ def get_naver_geocode(address):
         print(f"Geocoding Internal Error: {e}")
         return None, None
 
-def fetch_map_image(lat, lng):
+def fetch_map_image(lat, lng, zoom_level=16):
     """
-    위도, 경도를 받아 정적 지도 이미지(Binary)를 반환합니다.
+    위도, 경도, 줌 레벨을 받아 정적 지도 이미지(Binary)를 반환합니다.
     Target Endpoint: https://maps.apigw.ntruss.com/map-static/v2/raster
     """
     if not lat or not lng:
@@ -66,11 +66,12 @@ def fetch_map_image(lat, lng):
     }
     
     # 지도 옵션 설정 (너비, 높이, 중심좌표, 줌레벨, 마커)
+    # zoom_level 파라미터 연동 (기본값 16)
     params = {
         "w": "600",
         "h": "300",
         "center": f"{lng},{lat}",
-        "level": "16",
+        "level": str(zoom_level),
         "markers": f"type:t|size:mid|pos:{lng} {lat}|label:매물",
         "scale": "2" # 고해상도 디스플레이 대응
     }
