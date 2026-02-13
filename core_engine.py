@@ -1,6 +1,6 @@
 # core_engine.py
-# 범공인 Pro v24 Enterprise - Core Data Engine Module (Standard Edition)
-# Version: 24.21.2 (Triple-Return Protocol & Vacuum Guard)
+# 범공인 Pro v24 Enterprise - Core Data Engine Module (v24.23.2)
+# Feature: Full Logic Restoration & No Pass
 
 import streamlit as st
 import pandas as pd
@@ -20,12 +20,9 @@ from datetime import datetime
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1bmTnLu-vMvlAGRSsCI4a8lk00U38covWl5Wfn9JZYVU"
 
 SHEET_GIDS = {
-    "임대": "2063575964", 
-    "임대(종료)": "791354475", 
-    "매매": "1833762712", 
-    "매매(종료)": "1597438389",
-    "임대브리핑": "982780192", 
-    "매매브리핑": "807085458"
+    "임대": "2063575964", "임대(종료)": "791354475", 
+    "매매": "1833762712", "매매(종료)": "1597438389",
+    "임대브리핑": "982780192", "매매브리핑": "807085458"
 }
 SHEET_NAMES = list(SHEET_GIDS.keys())
 
@@ -40,11 +37,11 @@ REQUIRED_COLS = ["번지"]
 def normalize_headers(df):
     df.columns = df.columns.str.replace(' ', '').str.strip()
     synonym_map = {
-        "보증금": ["보증금(만원)", "기보증금(만원)", "기보증금", "보증금"],
-        "월차임": ["월차임(만원)", "기월세(만원)", "월세(만원)", "월세", "기월세"],
-        "권리금": ["권리금_입금가(만원)", "권리금(만원)", "권리금"],
+        "보증금": ["보증금(만원)", "기보증금", "보증금"],
+        "월차임": ["월차임(만원)", "월세(만원)", "월세", "기월세"],
+        "권리금": ["권리금(만원)", "권리금"],
         "관리비": ["관리비(만원)", "관리비"],
-        "매매가": ["매매가(만원)", "매매금액(만원)", "매매금액", "매매가"],
+        "매매가": ["매매가(만원)", "매매금액", "매매가"],
         "면적": ["전용면적(평)", "실평수", "전용면적", "면적"],
         "대지면적": ["대지면적(평)", "대지", "대지면적"],
         "연면적": ["연면적(평)", "연면적"],
@@ -57,23 +54,19 @@ def normalize_headers(df):
     }
     for standard, aliases in synonym_map.items():
         for alias in aliases:
-            clean_alias = alias.replace(' ', '')
-            if clean_alias in df.columns:
-                df.rename(columns={clean_alias: standard}, inplace=True)
+            clean = alias.replace(' ', '')
+            if clean in df.columns:
+                df.rename(columns={clean: standard}, inplace=True)
                 break 
     return df
 
 def sanitize_dataframe(df):
     for col in NUMERIC_COLS:
         if col in df.columns:
-            try:
-                df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '').str.strip(), errors='coerce').fillna(0)
-            except: df[col] = 0.0
+            df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '').str.strip(), errors='coerce').fillna(0)
     for col in STRING_COLS:
         if col in df.columns:
-            try:
-                df[col] = df[col].astype(str).str.replace(r'\s+', ' ', regex=True).str.strip()
-            except: df[col] = ""
+            df[col] = df[col].astype(str).str.replace(r'\s+', ' ', regex=True).str.strip()
     return df.fillna("")
 
 def validate_data_integrity(df):
@@ -90,48 +83,39 @@ def validate_data_integrity(df):
 # ==============================================================================
 
 def initialize_search_state():
-    """앱 실행 시 세션 상태 초기화"""
-    if 'editor_key_version' not in st.session_state:
-        st.session_state.editor_key_version = 0
-    # 기타 검색 필터 초기값 설정 (필요 시 확장)
+    if 'editor_key_version' not in st.session_state: st.session_state.editor_key_version = 0
     defaults = {
-        'search_keyword': "", 'exact_bunji': "", 'selected_cat': [], 
-        'selected_gu': [], 'selected_dong': [], 'is_no_kwon': False,
+        'search_keyword': "", 'exact_bunji': "", 'selected_cat': [], 'selected_gu': [], 'selected_dong': [],
         'min_price': 0.0, 'max_price': 10000000.0, 'min_dep': 0.0, 'max_dep': 1000000.0,
         'min_rent': 0.0, 'max_rent': 10000.0, 'min_kwon': 0.0, 'max_kwon': 100000.0,
         'min_area': 0.0, 'max_area': 10000.0, 'min_land': 0.0, 'max_land': 10000.0,
-        'min_total': 0.0, 'max_total': 10000.0, 'min_fl': -2.0, 'max_fl': 50.0
+        'min_total': 0.0, 'max_total': 10000.0, 'min_fl': 0.0, 'max_fl': 100.0, 'is_no_kwon': False
     }
     for k, v in defaults.items():
         if k not in st.session_state: st.session_state[k] = v
 
 def safe_reset():
-    """필터 초기화"""
     for key in list(st.session_state.keys()):
-        if key not in ['current_sheet', 'editor_key_version']:
-            del st.session_state[key]
+        if key not in ['current_sheet', 'editor_key_version']: del st.session_state[key]
     st.session_state.editor_key_version += 1
-    st.cache_data.clear()
-    st.rerun()
+    st.cache_data.clear(); st.rerun()
 
 @st.cache_data(ttl=600)
 def load_sheet_data(sheet_name):
     gid = SHEET_GIDS.get(sheet_name)
     if not gid: return None
-    csv_url = f"{SHEET_URL}/export?format=csv&gid={gid}"
     try:
-        df = pd.read_csv(csv_url)
+        df = pd.read_csv(f"{SHEET_URL}/export?format=csv&gid={gid}")
         df = normalize_headers(df)
         df = sanitize_dataframe(df)
         df = df.drop(columns=[c for c in ['선택', 'IronID', 'Unnamed: 0'] if c in df.columns], errors='ignore')
         df['IronID'] = [str(uuid.uuid4()) for _ in range(len(df))]
         df.insert(0, '선택', False)
         return df
-    except Exception as e:
-        print(f"[Load Error] {e}"); return None
+    except: return None
 
 # ==============================================================================
-# [SECTION 4: NANO-PRECISION MATCHING ENGINE]
+# [SECTION 4: MATCHING & UPDATE ENGINE]
 # ==============================================================================
 
 def create_match_signature(df, keys):
@@ -148,9 +132,50 @@ def create_match_signature(df, keys):
         except: continue
     return temp_df
 
-# ==============================================================================
-# [SECTION 5: BATCH UPDATE ENGINE]
-# ==============================================================================
+def update_single_row(updated_row, sheet_name):
+    conn = st.connection("gsheets", type=GSheetsConnection)
+    try:
+        sheet_data = normalize_headers(conn.read(spreadsheet=SHEET_URL, worksheet=sheet_name, ttl=0))
+        match_keys = ['번지', '층', '면적'] 
+        valid_keys = [k for k in match_keys if k in sheet_data.columns and k in updated_row]
+        
+        if len(valid_keys) < 2: return False, "식별 키 부족 (번지/층/면적 필수)"
+        
+        local_sig = ""
+        for k in valid_keys:
+             val = str(updated_row.get(k, '')).replace(',', '').strip()
+             if k in NUMERIC_COLS:
+                 try: val = str(round(float(val), 1)).replace('.0', '')
+                 except: val = "0"
+             else:
+                 val = re.sub(r'[^가-힣a-zA-Z0-9]', '', val)
+             local_sig += val + "|"
+             
+        server_sigs = []
+        for _, row in sheet_data.iterrows():
+            sig = ""
+            for k in valid_keys:
+                val = str(row.get(k, '')).replace(',', '').strip()
+                if k in NUMERIC_COLS:
+                    try: val = str(round(float(val), 1)).replace('.0', '')
+                    except: val = "0"
+                else:
+                    val = re.sub(r'[^가-힣a-zA-Z0-9]', '', val)
+                sig += val + "|"
+            server_sigs.append(sig)
+            
+        try:
+            target_idx = server_sigs.index(local_sig)
+            for k, v in updated_row.items():
+                if k in sheet_data.columns and k not in ['선택', 'IronID']:
+                    if k in NUMERIC_COLS:
+                        try: v = float(str(v).replace(',', ''))
+                        except: v = 0.0
+                    sheet_data.at[target_idx, k] = v
+            conn.update(spreadsheet=SHEET_URL, worksheet=sheet_name, data=sheet_data)
+            return True, "✅ 수정 사항이 저장되었습니다."
+        except ValueError: return False, "❌ 원본 데이터를 찾을 수 없습니다."
+    except Exception as e: return False, f"업데이트 실패: {str(e)}"
 
 def save_updates_to_sheet(edited_df, original_df, sheet_name):
     conn = st.connection("gsheets", type=GSheetsConnection)
@@ -190,10 +215,6 @@ def save_updates_to_sheet(edited_df, original_df, sheet_name):
         return False, f"🚨 재시도 실패: {last_err}", None
     except Exception as e: return False, f"🚨 치명적 오류: {e}", traceback.format_exc()
 
-# ==============================================================================
-# [SECTION 6: TRANSACTION ENGINE]
-# ==============================================================================
-
 def execute_transaction(action_type, target_rows, source_sheet, target_sheet=None):
     conn = st.connection("gsheets", type=GSheetsConnection)
     try:
@@ -208,7 +229,7 @@ def execute_transaction(action_type, target_rows, source_sheet, target_sheet=Non
 
         if action_type in ["delete", "move", "restore"]:
             new_src = src_df[~src_sig['_match_sig'].isin(sigs)]
-            if len(src_df) == len(new_src): return False, "매칭 실패", pd.DataFrame({"Target": sigs[:1], "Server": src_sig['_match_sig'].iloc[:1]})
+            if len(src_df) == len(new_src): return False, "매칭 실패", None
             
             if action_type in ["move", "restore"] and target_sheet:
                 tgt_df = normalize_headers(conn.read(spreadsheet=SHEET_URL, worksheet=target_sheet, ttl=0))
