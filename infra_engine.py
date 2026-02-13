@@ -88,17 +88,16 @@ def _calculate_walking_data(origin_x, origin_y, dest_x, dest_y):
         return 0, 0
 
 # ==========================================
-# 3. 핵심 분석 함수 (2-Button System)
+# 3. 핵심 분석 함수 (2-Button System + Hybrid Logic)
 # ==========================================
 
 def get_commercial_analysis(lat, lng):
     """
-    [함수 1] 통합 상권 분석 (v24.27.0)
-    - 지하철역 분석 (기존 Transport 흡수)
-    - 10대 업종 밀집도 카운트
+    [함수 1] 통합 상권 분석 (v24.27.1 업데이트)
+    - 지하철역 분석 (기존 유지)
+    - 10대 업종 밀집도 (혼합 검색: Category + Keyword)
     - Top 10 앵커 시설 스캔
     """
-    # 초기값 선언 (Zero-Failure)
     result = {
         "subway": {
             "station": "정보 없음",
@@ -115,23 +114,19 @@ def get_commercial_analysis(lat, lng):
             return result
 
         # ---------------------------------------------------------
-        # [Step 1] 지하철역 분석 (Integrated Logic)
+        # [Step 1] 지하철역 분석
         # ---------------------------------------------------------
         sub_params = {"category_group_code": "SW8", "x": lng, "y": lat, "radius": 700, "sort": "distance"}
         subways_raw = _call_kakao_local("category", sub_params)
         
-        # 순도 필터링: '지하철,전철' 카테고리 필수
         subways = [s for s in subways_raw if '지하철,전철' in s.get('category_name', '')]
 
         if subways:
             nearest = subways[0]
             raw_name = nearest.get('place_name', '')
-            
-            # 이름 정제 (괄호 제거)
             clean_name = re.sub(r'\(.*\)', '', raw_name).strip()
             station_base_name = clean_name.split()[0]
             
-            # 출구 검색
             exit_params = {"query": f"{station_base_name} 출구", "x": lng, "y": lat, "radius": 700, "sort": "distance"}
             exits = _call_kakao_local("keyword", exit_params)
             
@@ -142,7 +137,6 @@ def get_commercial_analysis(lat, lng):
                 exit_name = _extract_exit_number(target_obj.get('place_name', ''))
                 if not exit_name: exit_name = target_obj.get('place_name', '')
             
-            # 도보 계산
             dist, time = _calculate_walking_data(lng, lat, target_obj.get('x'), target_obj.get('y'))
             
             result["subway"] = {
@@ -153,18 +147,35 @@ def get_commercial_analysis(lat, lng):
             }
 
         # ---------------------------------------------------------
-        # [Step 2] 10대 업종 밀집도 (10 Categories)
+        # [Step 2] 10대 업종 밀집도 (v24.27.1 Hybrid Logic)
         # ---------------------------------------------------------
-        categories = {
-            "음식점": "FD6", "카페": "CE7", "편의점": "CS2", "은행": "BK9", "병원": "HP8",
-            "약국": "PM9", "대형마트": "MT1", "학원": "AC5", "주차장": "PK6", "지하철역": "SW8"
-        }
+        # (표시이름, 검색타입, 값)
+        metrics_config = [
+            ("음식점", "category", "FD6"),
+            ("카페", "category", "CE7"),
+            ("편의점", "category", "CS2"),
+            ("은행", "category", "BK9"),
+            ("병원", "category", "HP8"),
+            ("약국", "category", "PM9"),
+            ("학원", "category", "AC5"),
+            ("주차장", "category", "PK6"),
+            ("제과점", "keyword", "제과점"), # Keyword Search
+            ("미용실", "keyword", "미용실")  # Keyword Search
+        ]
         
         current_counts = {}
-        for name, code in categories.items():
-            params = {"category_group_code": code, "x": lng, "y": lat, "radius": 300}
-            data = _call_kakao_local("category", params)
-            current_counts[name] = len(data)
+        for label, method, val in metrics_config:
+            # 검색 용량 확장 (size: 45)
+            if method == "category":
+                params = {"category_group_code": val, "x": lng, "y": lat, "radius": 300, "size": 45}
+                endpoint = "category"
+            else:
+                params = {"query": val, "x": lng, "y": lat, "radius": 300, "size": 45}
+                endpoint = "keyword"
+            
+            data = _call_kakao_local(endpoint, params)
+            current_counts[label] = len(data)
+            
         result["counts"] = current_counts
 
         # ---------------------------------------------------------
@@ -200,7 +211,7 @@ def get_commercial_analysis(lat, lng):
 
 def get_demand_analysis(lat, lng):
     """
-    [함수 2] 수요 분석 (기존 유지 + DataFrame 보장)
+    [함수 2] 수요 분석
     """
     columns = ["구분", "시설명", "거리(m)"]
     default_df = pd.DataFrame(columns=columns)
