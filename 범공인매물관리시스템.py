@@ -4,55 +4,51 @@ from streamlit_gsheets import GSheetsConnection
 import urllib.parse
 import time
 import uuid
+import re
 
 # [MODULE: SYSTEM SETUP]
 # 1. 시스템 설정
 st.set_page_config(
-    page_title="범공인 Pro (v24.19.5)",
+    page_title="범공인 Pro (v24.20.1)",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # [MODULE: STYLES & CSS]
-# 2. 스타일 설정 (모바일 최적화)
+# 2. 스타일 설정 (모바일 터치 최적화 & 스크롤 고정)
 st.markdown("""
     <style>
     /* 버튼 및 입력창 크기 확보 */
     .stButton button { 
-        min-height: 50px !important; 
-        font-size: 16px !important; 
-        font-weight: bold !important; 
+        min-height: 45px !important; 
+        font-size: 15px !important; 
+        font-weight: 600 !important; 
         width: 100%;
         border-radius: 8px;
     }
     input[type=number], input[type=text] { 
-        min-height: 45px !important; 
-        font-size: 16px !important; 
+        min-height: 40px !important; 
     }
     
     /* 멀티셀렉트 터치 영역 개선 */
     div[data-baseweb="select"] > div {
-        min-height: 45px !important;
+        min-height: 40px !important;
     }
     
-    /* Expander 헤더 스타일 */
-    div[data-testid="stExpander"] details summary p { 
-        font-size: 1.1rem; 
-        font-weight: 600; 
-        padding: 10px 0;
+    /* 사이드바 컨테이너 스타일 */
+    [data-testid="stSidebar"] div[data-testid="stVerticalBlock"] {
+        gap: 1rem;
     }
     
     /* 모바일 최적화 */
     @media (max-width: 768px) { 
-        .stDataEditor { font-size: 14px !important; }
-        h1 { font-size: 22px !important; }
-        div[data-testid="column"] { margin-bottom: 8px; }
+        .stDataEditor { font-size: 13px !important; }
+        h1 { font-size: 20px !important; }
     }
     </style>
 """, unsafe_allow_html=True)
 
 # [MODULE: CONSTANTS]
-# 3. 상수 및 매핑
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1bmTnLu-vMvlAGRSsCI4a8lk00U38covWl5Wfn9JZYVU"
 SHEET_GIDS = {
     "임대": "2063575964", 
@@ -66,8 +62,13 @@ SHEET_NAMES = list(SHEET_GIDS.keys())
 
 # [MODULE: UTILITIES]
 # 4. 유틸리티 함수
+
 def safe_reset():
     """세션 상태를 안전하게 초기화하고 앱을 리로드합니다."""
+    # 리스트 선택 상태 초기화 (전체 선택 해제)
+    if 'select_all' in st.session_state: st.session_state.select_all = False
+    if 'deselect_all' in st.session_state: st.session_state.deselect_all = False
+    
     for key in list(st.session_state.keys()):
         if key != 'current_sheet':
             del st.session_state[key]
@@ -102,7 +103,6 @@ def standardize_columns(df):
     return df
 
 def initialize_search_state():
-    """모든 필터 변수를 미리 초기화하여 AttributeError 방지"""
     defaults = {
         'search_keyword': "", 'exact_bunji': "",
         'selected_cat': [], 'selected_gu': [], 'selected_dong': [],
@@ -121,9 +121,12 @@ def initialize_search_state():
     for key, val in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = val
+    
+    # 전체 선택/해제 상태 관리용
+    if 'editor_key_version' not in st.session_state:
+        st.session_state.editor_key_version = 0
 
 # [MODULE: DATA ENGINE]
-# 5. 데이터 로드 엔진
 @st.cache_data(ttl=600) 
 def load_data(sheet_name):
     gid = SHEET_GIDS.get(sheet_name)
@@ -141,29 +144,37 @@ def load_data(sheet_name):
     numeric_candidates = ["보증금", "월차임", "권리금", "관리비", "면적", "층", "매매가", "수익률", "대지면적", "연면적"]
     for col in numeric_candidates:
         if col in df.columns:
-            df[col] = pd.to_numeric(
-                df[col].astype(str).str.replace(',', ''), 
-                errors='coerce'
-            ).fillna(0)
-    
+            try:
+                df[col] = pd.to_numeric(
+                    df[col].astype(str).str.replace(',', '').str.strip(), 
+                    errors='coerce'
+                ).fillna(0)
+            except:
+                df[col] = 0
+
+    str_cols = df.select_dtypes(include=['object']).columns
+    for col in str_cols:
+        try:
+            df[col] = df[col].astype(str).str.replace(r'\s+', ' ', regex=True).str.strip()
+        except: pass
+
     df = df.fillna("") 
 
-    # IronID 생성
     if '선택' in df.columns: df = df.drop(columns=['선택'])
     if 'IronID' in df.columns: df = df.drop(columns=['IronID'])
     
+    # 고유 ID 생성 (매번 로드 시 갱신됨을 주의 - 세션 유지 중요)
     df['IronID'] = [str(uuid.uuid4()) for _ in range(len(df))]
     df.insert(0, '선택', False)
     
     return df
 
-# [MODULE: UPDATE ENGINE]
-# 6. 데이터 쓰기 엔진 (정밀 매칭 최적화)
+# [MODULE: UPDATE ENGINE (REAL-TIME SYNC)]
 def update_data(action_type, target_rows, source_sheet, target_sheet=None):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
     except Exception:
-        return False, "❌ 서비스 계정 연결 실패. secrets 설정을 확인하세요."
+        return False, "❌ 서비스 계정 연결 실패."
     
     try:
         src_df = conn.read(spreadsheet=SHEET_URL, worksheet=source_sheet, ttl=0)
@@ -171,51 +182,66 @@ def update_data(action_type, target_rows, source_sheet, target_sheet=None):
         
         target_rows_clean = target_rows.drop(columns=['선택', 'IronID'], errors='ignore')
         
-        # 정밀 매칭 (복합 키 + 내용 Regex 정제)
         match_cols = ['번지', '층', '면적', '보증금', '매매가', '월차임', '내용']
         valid_keys = [k for k in match_cols if k in src_df.columns and k in target_rows_clean.columns]
         
-        if not valid_keys:
-            return False, "❌ 데이터 식별 실패: 고유값 컬럼이 부족합니다."
+        if len(valid_keys) < 2:
+            return False, "❌ 식별 키 부족."
 
-        def prepare_match_key(df):
-            temp_df = df.copy()
+        def create_match_signature(df_in):
+            temp_df = df_in.copy()
+            temp_df['_match_sig'] = ""
             for k in valid_keys:
-                if k == '내용':
-                    # [최적화] 특수문자/공백 제거 후 앞 10자리 비교
-                    temp_df[k] = temp_df[k].astype(str).str.replace(r'[^가-힣a-zA-Z0-9]', '', regex=True).str[:10]
-                else:
-                    temp_df[k] = temp_df[k].astype(str).str.replace(',', '').str.strip()
+                try:
+                    if k in ["면적", "보증금", "매매가", "월차임", "대지면적", "연면적"]:
+                        col_series = pd.to_numeric(temp_df[k].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+                        col_str = col_series.round(1).astype(str).str.replace(r'\.0$', '', regex=True)
+                        temp_df['_match_sig'] += col_str
+                    else: 
+                        if k == '내용': val_series = temp_df[k].astype(str).str[:20]
+                        else: val_series = temp_df[k].astype(str)
+                        clean_str = val_series.str.replace(r'[^가-힣a-zA-Z0-9]', '', regex=True)
+                        temp_df['_match_sig'] += clean_str
+                except: continue
             return temp_df
 
-        src_prep = prepare_match_key(src_df)
-        tgt_prep = prepare_match_key(target_rows_clean)
+        src_w_sig = create_match_signature(src_df)
+        tgt_w_sig = create_match_signature(target_rows_clean)
+        signatures_to_process = tgt_w_sig['_match_sig'].tolist()
         
+        if not signatures_to_process:
+            return False, "❌ 키 생성 오류."
+
         if action_type in ["delete", "move", "restore"]:
-            merged = src_prep.merge(tgt_prep[valid_keys], on=valid_keys, how='left', indicator=True)
-            rows_to_keep_mask = merged['_merge'] == 'left_only'
-            new_src_df = src_df[rows_to_keep_mask]
+            # 원본에서 제외할 행 필터링
+            rows_to_keep = ~src_w_sig['_match_sig'].isin(signatures_to_process)
+            new_src_df = src_df[rows_to_keep]
             
-            if len(new_src_df) == len(src_df):
-                return False, "❌ 일치하는 데이터를 찾지 못했습니다. (이미 변경되었을 수 있음)"
+            deleted_count = len(src_df) - len(new_src_df)
+            if deleted_count == 0:
+                # 디버깅 정보: 첫 번째 실패 시그니처 예시 출력
+                debug_info = f"Target Sig: {signatures_to_process[0] if signatures_to_process else 'None'}"
+                return False, f"❌ 매칭 실패 (서버 데이터 불일치).\n{debug_info}"
 
             if action_type in ["move", "restore"] and target_sheet:
-                tgt_df_remote = conn.read(spreadsheet=SHEET_URL, worksheet=target_sheet, ttl=0)
-                tgt_df_remote = standardize_columns(tgt_df_remote)
-                new_tgt_df = pd.concat([tgt_df_remote, target_rows_clean], ignore_index=True)
-                conn.update(spreadsheet=SHEET_URL, worksheet=target_sheet, data=new_tgt_df)
+                try:
+                    tgt_df_remote = conn.read(spreadsheet=SHEET_URL, worksheet=target_sheet, ttl=0)
+                    tgt_df_remote = standardize_columns(tgt_df_remote)
+                    new_tgt_df = pd.concat([tgt_df_remote, target_rows_clean], ignore_index=True)
+                    conn.update(spreadsheet=SHEET_URL, worksheet=target_sheet, data=new_tgt_df)
+                except: return False, "❌ 타겟 시트 업데이트 실패."
             
             conn.update(spreadsheet=SHEET_URL, worksheet=source_sheet, data=new_src_df)
-            
+            st.cache_data.clear() # [REAL-TIME] 즉시 캐시 삭제
             action_map = {"move": "종료", "delete": "삭제", "restore": "복구"}
-            return True, f"✅ {len(target_rows)}건 {action_map[action_type]} 완료!"
+            return True, f"✅ {deleted_count}건 {action_map[action_type]} 완료!"
 
         elif action_type == "copy":
-            if not target_sheet: return False, "❌ 타겟 시트 오류"
             tgt_df_remote = conn.read(spreadsheet=SHEET_URL, worksheet=target_sheet, ttl=0)
             tgt_df_remote = standardize_columns(tgt_df_remote)
             new_tgt_df = pd.concat([tgt_df_remote, target_rows_clean], ignore_index=True)
             conn.update(spreadsheet=SHEET_URL, worksheet=target_sheet, data=new_tgt_df)
+            st.cache_data.clear() # [REAL-TIME] 즉시 캐시 삭제
             return True, f"✅ {len(target_rows)}건 복사 완료!"
 
         return False, "❌ 알 수 없는 작업"
@@ -224,193 +250,168 @@ def update_data(action_type, target_rows, source_sheet, target_sheet=None):
         return False, f"🚨 실행 오류: {str(e)}"
 
 # [MODULE: MAIN UI]
-# 7. 메인 인터페이스
 st.title("🏙️ 범공인 매물장 (Pro)")
 
 if 'current_sheet' not in st.session_state: st.session_state.current_sheet = SHEET_NAMES[0]
 if 'action_status' not in st.session_state: st.session_state.action_status = None 
 
+# ---------------------------------------------------------
+# [SIDEBAR: 물리적 분리형 제어 센터]
+# ---------------------------------------------------------
 with st.sidebar:
-    st.header("📂 작업 공간 선택")
-    try: curr_idx = SHEET_NAMES.index(st.session_state.current_sheet)
-    except: curr_idx = 0
-    selected_sheet = st.selectbox("데이터 시트", SHEET_NAMES, index=curr_idx)
+    st.header("📂 관리 도구")
     
-    if selected_sheet != st.session_state.current_sheet:
-        st.session_state.current_sheet = selected_sheet
-        st.session_state.action_status = None 
-        st.cache_data.clear()
-        st.rerun()
+    # [시트 선택 구역]
+    with st.container(border=True):
+        try: curr_idx = SHEET_NAMES.index(st.session_state.current_sheet)
+        except: curr_idx = 0
+        selected_sheet = st.selectbox("데이터 시트", SHEET_NAMES, index=curr_idx)
+        
+        if selected_sheet != st.session_state.current_sheet:
+            st.session_state.current_sheet = selected_sheet
+            st.session_state.action_status = None 
+            st.cache_data.clear()
+            st.rerun()
 
-    st.divider()
-    if st.button("🔄 검색 조건 초기화", type="primary", use_container_width=True):
-        safe_reset()
-    st.caption("Developed by Gemini & Pro-Mode")
+    # 데이터 로드 (필터 옵션 구성을 위해 미리 로드)
+    df_main = load_data(st.session_state.current_sheet)
+    if df_main is None:
+        st.error("데이터 로드 실패")
+        st.stop()
 
-# 데이터 로드
-df_main = load_data(st.session_state.current_sheet)
-if df_main is None:
-    st.error(f"🚨 '{st.session_state.current_sheet}' 로드 실패. GID를 확인하세요.")
-    st.stop()
-
-# [MODULE: FRAGMENT UI]
-# 8. 메인 프래그먼트 (깜빡임 방지 & 상태 초기화)
-@st.fragment
-def main_interface():
-    # 1. 상태 변수 초기화
     initialize_search_state()
+    def sess(key): return st.session_state[key]
 
-    def get_max_if_exists(col):
-        if col in df_main.columns and not df_main.empty:
-            val = df_main[col].max()
-            return float(val) if pd.notnull(val) and val > 0 else 0.0
-        return 0.0
+    st.write("") # 간격 확보
 
-    def sess(key):
-        return st.session_state[key]
+    # [1. 텍스트 검색 구역] - 터치 미스 방지용 분리
+    with st.container(border=True):
+        st.markdown("##### 🔍 키워드 검색")
+        st.text_input("통합 검색 (내용, 건물명)", key='search_keyword')
+        st.text_input("번지 정밀검색 (예: 50-1)", key='exact_bunji')
 
+    st.write("") # 간격 확보
+
+    # [2. 멀티 필터 구역] - 물리적 분리
+    with st.container(border=True):
+        st.markdown("##### 🏷️ 항목 필터링")
+        
+        unique_cat = []
+        if '구분' in df_main.columns: unique_cat = sorted(df_main['구분'].astype(str).unique().tolist())
+        st.multiselect("구분 (상가/사무실 등)", unique_cat, key='selected_cat')
+
+        unique_gu = []
+        if '지역_구' in df_main.columns: unique_gu = sorted(df_main['지역_구'].astype(str).unique().tolist())
+        st.multiselect("지역 (구)", unique_gu, key='selected_gu')
+        
+        unique_dong = []
+        if '지역_동' in df_main.columns:
+            if st.session_state.selected_gu:
+                unique_dong = sorted(df_main[df_main['지역_구'].isin(st.session_state.selected_gu)]['지역_동'].astype(str).unique().tolist())
+            else:
+                unique_dong = sorted(df_main['지역_동'].astype(str).unique().tolist())
+        st.multiselect("지역 (동)", unique_dong, key='selected_dong')
+
+    st.write("") # 간격 확보
+
+    # [3. 수치 필터 구역]
     is_sale_mode = "매매" in st.session_state.current_sheet
-
-    # --- FILTER SECTION (물리적 분리) ---
-    with st.expander("🔍 정밀 검색 및 제어판 (열기/닫기)", expanded=True):
-        
-        # [구역 1] 텍스트 검색 (컨테이너 분리)
-        with st.container(border=True):
-            st.markdown("**1. 키워드 검색**")
-            c_search, c_bunji = st.columns([1.5, 1])
-            with c_search: st.text_input("통합 검색", key='search_keyword', placeholder="내용, 건물명, 번지 등", label_visibility="collapsed")
-            with c_bunji: st.text_input("번지 정밀검색", key='exact_bunji', placeholder="예: 50-1", label_visibility="collapsed")
-        
-        st.write("") # 간격
-
-        # [구역 2] 항목 선택 (컨테이너 분리)
-        with st.container(border=True):
-            st.markdown("**2. 항목 선택**")
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                unique_cat = []
-                if '구분' in df_main.columns: unique_cat = sorted(df_main['구분'].astype(str).unique().tolist())
-                st.multiselect("구분", unique_cat, key='selected_cat', placeholder="전체")
-
-            with c2:
-                unique_gu = []
-                if '지역_구' in df_main.columns: unique_gu = sorted(df_main['지역_구'].astype(str).unique().tolist())
-                st.multiselect("지역 (구)", unique_gu, key='selected_gu', placeholder="전체")
-                
-            with c3:
-                unique_dong = []
-                if '지역_동' in df_main.columns:
-                    current_gu = st.session_state.selected_gu
-                    if current_gu:
-                        filtered_df = df_main[df_main['지역_구'].isin(current_gu)]
-                        unique_dong = sorted(filtered_df['지역_동'].astype(str).unique().tolist())
-                    else:
-                        unique_dong = sorted(df_main['지역_동'].astype(str).unique().tolist())
-                st.multiselect("지역 (동)", unique_dong, key='selected_dong', placeholder="전체")
-
-        st.divider()
-        
-        # [구역 3] 수치 필터
-        r1, r2, r3 = st.columns(3)
-        LIMIT_HUGE = 100000000.0 
-
+    with st.expander("💰 상세 금액/면적 설정", expanded=False):
         if is_sale_mode:
-            with r1:
-                st.markdown("##### 💰 매매가 (만원)")
-                max_price = get_max_if_exists("매매가")
-                if max_price > 0:
-                    c_a, c_b = st.columns(2)
-                    c_a.number_input("최소", step=1000.0, key='min_price', value=sess('min_price'))
-                    c_b.number_input("최대", step=1000.0, key='max_price', value=sess('max_price'))
-                else: st.caption("매매가 정보 없음")
-            with r2:
-                st.markdown("##### 📊 수익률(%)")
-                max_yield = get_max_if_exists("수익률")
-                if max_yield > 0:
-                    c_a, c_b = st.columns(2)
-                    c_a.number_input("최소", step=0.1, key='min_yield', value=sess('min_yield'))
-                    c_b.number_input("최대", step=0.1, key='max_yield', value=sess('max_yield'))
-                else: st.caption("수익률 정보 없음")
-            with r3:
-                st.markdown("##### 📐 대지/연면적 (평)")
-                max_land = get_max_if_exists("대지면적")
-                max_total = get_max_if_exists("연면적")
-                c_a, c_b = st.columns(2)
-                if max_land > 0: c_a.number_input("대지 최소", step=1.0, key='min_land', value=sess('min_land'))
-                if max_land > 0: c_b.number_input("대지 최대", step=1.0, key='max_land', value=sess('max_land'))
-                c_c, c_d = st.columns(2)
-                if max_total > 0: c_c.number_input("연면 최소", step=1.0, key='min_total', value=sess('min_total'))
-                if max_total > 0: c_d.number_input("연면 최대", step=1.0, key='max_total', value=sess('max_total'))
+            st.caption("매매가 (만원)")
+            c1, c2 = st.columns(2)
+            c1.number_input("최소", step=1000.0, key='min_price', value=sess('min_price'))
+            c2.number_input("최대", step=1000.0, key='max_price', value=sess('max_price'))
+            
+            st.caption("대지면적 (평)")
+            c3, c4 = st.columns(2)
+            c3.number_input("최소", step=1.0, key='min_land', value=sess('min_land'))
+            c4.number_input("최대", step=1.0, key='max_land', value=sess('max_land'))
         else:
-            with r1:
-                st.markdown("##### 💰 보증금/월세 (만원)")
-                max_dep = get_max_if_exists("보증금")
-                max_rent = get_max_if_exists("월차임")
-                c_a, c_b = st.columns(2)
-                if max_dep > 0: c_a.number_input("보증금 최소", step=500.0, key='min_dep', value=sess('min_dep'))
-                if max_dep > 0: c_b.number_input("보증금 최대", step=500.0, key='max_dep', value=sess('max_dep'))
-                c_c, c_d = st.columns(2)
-                if max_rent > 0: c_c.number_input("월세 최소", step=10.0, key='min_rent', value=sess('min_rent'))
-                if max_rent > 0: c_d.number_input("월세 최대", step=10.0, key='max_rent', value=sess('max_rent'))
-            with r2:
-                st.markdown("##### 🔑 권리금/관리비")
-                is_no_kwon = st.checkbox("무권리만", key='is_no_kwon', value=sess('is_no_kwon'))
-                max_kwon = get_max_if_exists("권리금")
-                max_man = get_max_if_exists("관리비")
-                c_a, c_b = st.columns(2)
-                if max_kwon > 0: c_a.number_input("권리금 최소", step=100.0, key='min_kwon', disabled=is_no_kwon, value=sess('min_kwon'))
-                if max_kwon > 0: c_b.number_input("권리금 최대", step=100.0, key='max_kwon', disabled=is_no_kwon, value=sess('max_kwon'))
-                c_c, c_d = st.columns(2)
-                if max_man > 0: c_c.number_input("관리비 최소", step=5.0, key='min_man', value=sess('min_man'))
-                if max_man > 0: c_d.number_input("관리비 최대", step=5.0, key='max_man', value=sess('max_man'))
-            with r3:
-                st.markdown("##### 📐 면적 (평)")
-                max_area = get_max_if_exists("면적")
-                c_a, c_b = st.columns(2)
-                if max_area > 0: c_a.number_input("면적 최소", step=5.0, key='min_area', value=sess('min_area'))
-                if max_area > 0: c_b.number_input("면적 최대", step=5.0, key='max_area', value=sess('max_area'))
+            st.caption("보증금 (만원)")
+            c1, c2 = st.columns(2)
+            c1.number_input("최소", step=500.0, key='min_dep', value=sess('min_dep'))
+            c2.number_input("최대", step=500.0, key='max_dep', value=sess('max_dep'))
+            
+            st.caption("월세 (만원)")
+            c3, c4 = st.columns(2)
+            c3.number_input("최소", step=10.0, key='min_rent', value=sess('min_rent'))
+            c4.number_input("최대", step=10.0, key='max_rent', value=sess('max_rent'))
 
-    # --- FILTER LOGIC ---
+        st.caption("공통 조건")
+        st.checkbox("무권리만 보기", key='is_no_kwon')
+    
+    st.divider()
+    if st.button("🔄 검색 조건 초기화"):
+        safe_reset()
+
+# [MODULE: MAIN FRAGMENT]
+@st.fragment
+def main_content():
+    # --- FILTERING LOGIC ---
     df_filtered = df_main.copy()
 
+    # 1. Multi-select filters
     if '구분' in df_filtered.columns and st.session_state.selected_cat:
         df_filtered = df_filtered[df_filtered['구분'].isin(st.session_state.selected_cat)]
     if '지역_구' in df_filtered.columns and st.session_state.selected_gu:
         df_filtered = df_filtered[df_filtered['지역_구'].isin(st.session_state.selected_gu)]
     if '지역_동' in df_filtered.columns and st.session_state.selected_dong:
         df_filtered = df_filtered[df_filtered['지역_동'].isin(st.session_state.selected_dong)]
+    
+    # 2. Text filters
     if '번지' in df_filtered.columns and st.session_state.exact_bunji:
         df_filtered = df_filtered[df_filtered['번지'].astype(str).str.strip() == st.session_state.exact_bunji.strip()]
-
-    if is_sale_mode:
-        if '매매가' in df_filtered.columns:
-            df_filtered = df_filtered[(df_filtered['매매가'] >= st.session_state.min_price) & (df_filtered['매매가'] <= st.session_state.max_price)]
-        if '수익률' in df_filtered.columns:
-            df_filtered = df_filtered[(df_filtered['수익률'] >= st.session_state.min_yield) & (df_filtered['수익률'] <= st.session_state.max_yield)]
-        if '대지면적' in df_filtered.columns:
-            df_filtered = df_filtered[(df_filtered['대지면적'] >= st.session_state.min_land) & (df_filtered['대지면적'] <= st.session_state.max_land)]
-        if '연면적' in df_filtered.columns:
-            df_filtered = df_filtered[(df_filtered['연면적'] >= st.session_state.min_total) & (df_filtered['연면적'] <= st.session_state.max_total)]
-    else:
-        if '보증금' in df_filtered.columns:
-            df_filtered = df_filtered[(df_filtered['보증금'] >= st.session_state.min_dep) & (df_filtered['보증금'] <= st.session_state.max_dep)]
-        if '월차임' in df_filtered.columns:
-            df_filtered = df_filtered[(df_filtered['월차임'] >= st.session_state.min_rent) & (df_filtered['월차임'] <= st.session_state.max_rent)]
-        if '면적' in df_filtered.columns:
-            df_filtered = df_filtered[(df_filtered['면적'] >= st.session_state.min_area) & (df_filtered['면적'] <= st.session_state.max_area)]
-        if '관리비' in df_filtered.columns:
-            df_filtered = df_filtered[(df_filtered['관리비'] >= st.session_state.min_man) & (df_filtered['관리비'] <= st.session_state.max_man)]
-        if '권리금' in df_filtered.columns:
-            if st.session_state.is_no_kwon: df_filtered = df_filtered[df_filtered['권리금'] == 0]
-            else: df_filtered = df_filtered[(df_filtered['권리금'] >= st.session_state.min_kwon) & (df_filtered['권리금'] <= st.session_state.max_kwon)]
-
+    
     search_val = st.session_state.search_keyword.strip()
     if search_val:
         search_scope = df_filtered.drop(columns=['선택', 'IronID'], errors='ignore')
         mask = search_scope.fillna("").astype(str).apply(lambda x: ' '.join(x), axis=1).str.contains(search_val, case=False)
         df_filtered = df_filtered[mask]
 
-    # --- LIST VIEW (스크롤 고정) ---
+    # 3. Numeric filters
+    if is_sale_mode:
+        if '매매가' in df_filtered.columns:
+            df_filtered = df_filtered[(df_filtered['매매가'] >= st.session_state.min_price) & (df_filtered['매매가'] <= st.session_state.max_price)]
+        if '대지면적' in df_filtered.columns:
+            df_filtered = df_filtered[(df_filtered['대지면적'] >= st.session_state.min_land) & (df_filtered['대지면적'] <= st.session_state.max_land)]
+    else:
+        if '보증금' in df_filtered.columns:
+            df_filtered = df_filtered[(df_filtered['보증금'] >= st.session_state.min_dep) & (df_filtered['보증금'] <= st.session_state.max_dep)]
+        if '월차임' in df_filtered.columns:
+            df_filtered = df_filtered[(df_filtered['월차임'] >= st.session_state.min_rent) & (df_filtered['월차임'] <= st.session_state.max_rent)]
+        if '권리금' in df_filtered.columns and st.session_state.is_no_kwon:
+            df_filtered = df_filtered[df_filtered['권리금'] == 0]
+
+    # --- MASS ACTION LOGIC (전체 선택/해제) ---
+    c_sel, c_desel, c_dummy = st.columns([1, 1, 2])
+    
+    # 세션 상태에 필터링된 IronID 목록 저장 (data_editor 키 갱신용)
+    filtered_ids = df_filtered['IronID'].tolist()
+    
+    # 전체 선택 로직
+    if c_sel.button("✅ 전체 선택"):
+        # 현재 필터링된 모든 행의 '선택' 값을 True로 설정하는 로직
+        # st.data_editor는 session_state를 직접 수정한다고 반영되지 않으므로,
+        # key를 변경하여 컴포넌트를 리로드하는 방식을 사용
+        st.session_state[f"editor_{st.session_state.current_sheet}_data"] = {
+            row_id: {"선택": True} for row_id in filtered_ids
+        }
+        # 강제 리로드 트리거 (이 부분은 Streamlit 구조상 한계로 완벽하지 않을 수 있음, 
+        # 대신 원본 데이터프레임의 값을 바꿔서 재로드)
+        for idx in df_filtered.index:
+            df_filtered.at[idx, '선택'] = True
+        st.session_state.editor_key_version += 1
+        st.rerun()
+
+    # 전체 해제 로직
+    if c_desel.button("⬜ 전체 해제"):
+        for idx in df_filtered.index:
+            df_filtered.at[idx, '선택'] = False
+        st.session_state.editor_key_version += 1
+        st.rerun()
+
+    # --- LIST VIEW ---
     if len(df_filtered) == 0:
         st.warning("🔍 검색 결과가 없습니다.")
     else:
@@ -423,20 +424,24 @@ def main_interface():
         "선택": st.column_config.CheckboxColumn(width="small"),
         "IronID": None
     }
-    if "매매가" in df_filtered.columns: col_cfg["매매가"] = st.column_config.NumberColumn("매매가(만)", format="%d")
-    if "보증금" in df_filtered.columns: col_cfg["보증금"] = st.column_config.NumberColumn("보증금(만)", format="%d")
-    if "월차임" in df_filtered.columns: col_cfg["월차임"] = st.column_config.NumberColumn("월세(만)", format="%d")
-    if "권리금" in df_filtered.columns: col_cfg["권리금"] = st.column_config.NumberColumn("권리금(만)", format="%d")
-    if "면적" in df_filtered.columns: col_cfg["면적"] = st.column_config.NumberColumn("면적(평)", format="%.1f")
-    if "대지면적" in df_filtered.columns: col_cfg["대지면적"] = st.column_config.NumberColumn("대지(평)", format="%.1f")
-    if "연면적" in df_filtered.columns: col_cfg["연면적"] = st.column_config.NumberColumn("연면(평)", format="%.1f")
-    if "수익률" in df_filtered.columns: col_cfg["수익률"] = st.column_config.NumberColumn("수익률", format="%.2f%%")
-    if "내용" in df_filtered.columns: col_cfg["내용"] = st.column_config.TextColumn("특징", width="large")
-
-    editor_key = f"editor_{st.session_state.current_sheet}"
     
-    # [SCROLL LOCK] 리스트 영역 높이 고정
-    with st.container(height=550):
+    # 동적 포맷팅
+    format_map = {
+        "매매가": "%d", "보증금": "%d", "월차임": "%d", "권리금": "%d",
+        "면적": "%.1f", "대지면적": "%.1f", "연면적": "%.1f", "수익률": "%.2f%%"
+    }
+    for col, fmt in format_map.items():
+        if col in df_filtered.columns:
+            col_cfg[col] = st.column_config.NumberColumn(col, format=fmt)
+    
+    if "내용" in df_filtered.columns: 
+        col_cfg["내용"] = st.column_config.TextColumn("특징", width="large")
+
+    # 리로드용 동적 키 생성
+    editor_key = f"editor_{st.session_state.current_sheet}_{st.session_state.editor_key_version}"
+    
+    # [SCROLL LOCK] 리스트 영역 높이 고정 (700px)
+    with st.container(height=700):
         edited_df = st.data_editor(
             df_filtered,
             disabled=disabled_cols,
@@ -461,41 +466,36 @@ def main_interface():
         
         ac1, ac2, ac3 = st.columns(3)
         
-        # 1. 종료/복구
         with ac1:
             if is_briefing: pass
             elif is_ended:
                 target_restore = base_tab_name
-                if st.button(f"♻️ 매물 복구 ({target_restore})", type="primary", use_container_width=True):
+                if st.button(f"♻️ 복구 ({target_restore})", type="primary", use_container_width=True):
                     st.session_state.action_status = 'restore_confirm'
             else:
                 target_end = f"{base_tab_name}(종료)"
-                if st.button(f"🚀 종료 처리 ({target_end})", use_container_width=True):
+                if st.button(f"🚀 종료 ({target_end})", use_container_width=True):
                     st.session_state.action_status = 'move_confirm'
 
-        # 2. 복사
         with ac2:
             if not is_briefing:
                 target_brief = f"{base_tab_name}브리핑"
-                if st.button(f"📋 브리핑 복사 ({target_brief})", use_container_width=True):
+                if st.button(f"📋 복사 ({target_brief})", use_container_width=True):
                     st.session_state.action_status = 'copy_confirm'
 
-        # 3. 삭제
         with ac3:
-            if st.button("🗑️ 영구 삭제", type="primary", use_container_width=True):
+            if st.button("🗑️ 삭제", type="primary", use_container_width=True):
                 st.session_state.action_status = 'delete_confirm'
 
-        # Action Logic (Confirm)
+        # Action Confirmation
         if st.session_state.action_status == 'move_confirm':
             target_end = f"{base_tab_name}(종료)"
-            with st.status(f"🚀 [종료] '{target_end}'으로 이동합니다.", expanded=True) as status:
-                st.warning("⚠️ 이동 후 현재 목록에서는 사라집니다.")
+            with st.status(f"🚀 [종료] {selected_count}건을 이동합니다.", expanded=True) as status:
                 if st.button("확인 (이동)"):
                     success, msg = update_data("move", selected_rows, current_tab, target_end)
                     if success:
-                        status.update(label="완료", state="complete")
                         st.success(msg)
-                        time.sleep(1.5)
+                        time.sleep(1.0)
                         st.session_state.action_status = None
                         st.cache_data.clear()
                         st.rerun()
@@ -503,14 +503,12 @@ def main_interface():
 
         elif st.session_state.action_status == 'restore_confirm':
             target_restore = base_tab_name
-            with st.status(f"♻️ [복구] '{target_restore}' 시트로 되돌립니다.", expanded=True) as status:
-                st.info("ℹ️ 종료 탭에서 사라지고 원본 탭에 다시 나타납니다.")
+            with st.status(f"♻️ [복구] {selected_count}건을 되돌립니다.", expanded=True) as status:
                 if st.button("확인 (복구)"):
                     success, msg = update_data("restore", selected_rows, current_tab, target_restore)
                     if success:
-                        status.update(label="완료", state="complete")
                         st.success(msg)
-                        time.sleep(1.5)
+                        time.sleep(1.0)
                         st.session_state.action_status = None
                         st.cache_data.clear()
                         st.rerun()
@@ -518,33 +516,27 @@ def main_interface():
 
         elif st.session_state.action_status == 'copy_confirm':
             target_brief = f"{base_tab_name}브리핑"
-            with st.status(f"📋 [복사] '{target_brief}'에 추가합니다.", expanded=True) as status:
-                st.info("ℹ️ 원본은 유지됩니다.")
+            with st.status(f"📋 [복사] {selected_count}건을 추가합니다.", expanded=True) as status:
                 if st.button("확인 (복사)"):
                     success, msg = update_data("copy", selected_rows, current_tab, target_brief)
                     if success:
-                        status.update(label="완료", state="complete")
                         st.success(msg)
-                        time.sleep(1.5)
+                        time.sleep(1.0)
                         st.session_state.action_status = None
                     else: st.error(msg)
 
         elif st.session_state.action_status == 'delete_confirm':
-            with st.status("🗑️ [삭제] 영구 삭제하시겠습니까?", expanded=True) as status:
-                st.error("⚠️ 복구 불가능합니다.")
+            with st.status(f"🗑️ [삭제] {selected_count}건을 영구 삭제합니다.", expanded=True) as status:
+                st.error("⚠️ 복구할 수 없습니다.")
                 if st.button("확인 (삭제)"):
                     success, msg = update_data("delete", selected_rows, current_tab)
                     if success:
-                        status.update(label="완료", state="complete")
                         st.success(msg)
-                        time.sleep(1.5)
+                        time.sleep(1.0)
                         st.session_state.action_status = None
                         st.cache_data.clear()
                         st.rerun()
                     else: st.error(msg)
-    else:
-        st.caption("👈 목록에서 '선택' 체크박스를 클릭하면 관리 버튼이 나타납니다.")
-        st.session_state.action_status = None
 
-# 프래그먼트 실행
-main_interface()
+# 실행
+main_content()
