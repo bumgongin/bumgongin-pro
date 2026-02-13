@@ -1,18 +1,18 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.21.6)
-# Updated: Smart Filter Toggle & Fragment Isolation
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.21.8)
+# Final Phase 1 Release: All Smart Filters Active
 
 import streamlit as st
 import pandas as pd
 import time
 import core_engine as engine  # [Core Engine v24.21.2]
-import styles                 # [Style Module v24.21.6]
+import styles                 # [Style Module v24.21.8]
 
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
 st.set_page_config(
-    page_title="범공인 Pro (v24.21.6)",
+    page_title="범공인 Pro (v24.21.8)",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -26,7 +26,8 @@ if 'current_sheet' not in st.session_state:
 if 'action_status' not in st.session_state: 
     st.session_state.action_status = None 
 
-# [NEW] 스마트 필터 토글 상태 초기화
+# [NEW] 스마트 필터 토글 상태 초기화 (구분 추가됨)
+if 'show_cat_search' not in st.session_state: st.session_state.show_cat_search = False
 if 'show_gu_search' not in st.session_state: st.session_state.show_gu_search = False
 if 'show_dong_search' not in st.session_state: st.session_state.show_dong_search = False
     
@@ -35,7 +36,7 @@ engine.initialize_search_state() # 필터 변수 초기화
 def sess(key): return st.session_state[key]
 
 # ==============================================================================
-# [SIDEBAR] 필터링 컨트롤 타워 (스마트 필터 적용)
+# [SIDEBAR] 필터링 컨트롤 타워 (All Smart Filters)
 # ==============================================================================
 with st.sidebar:
     st.header("📂 관리 도구")
@@ -79,34 +80,44 @@ with st.sidebar:
 
     st.write("") 
 
-    # 3. 항목 필터 (스마트 토글 적용)
+    # 3. 항목 필터 (스마트 토글 적용 - 구분/구/동)
     with st.container(border=True):
         st.markdown("##### 🏷️ 항목 필터링")
         
-        # [구분]
+        # [구분 - 토글형] (NEW)
+        c_cat_L, c_cat_B = st.columns([4, 1])
+        c_cat_L.markdown("구분")
+        if c_cat_B.button("🔍", key="btn_cat_search"):
+            st.session_state.show_cat_search = not st.session_state.show_cat_search
+            
         unique_cat = sorted(df_main['구분'].astype(str).unique().tolist()) if '구분' in df_main.columns else []
-        st.multiselect("구분 (상가/사무실)", unique_cat, key='selected_cat', placeholder="전체 선택")
+        
+        if st.session_state.show_cat_search:
+            cat_term = st.text_input("구분 검색", key="cat_search_term", placeholder="예: 상가")
+            if cat_term:
+                unique_cat = [c for c in unique_cat if cat_term in c]
+
+        st.multiselect("구분 선택", unique_cat, key='selected_cat', placeholder="전체 선택", label_visibility="collapsed")
 
         # [지역 (구) - 토글형]
-        c_label, c_btn = st.columns([4, 1])
-        c_label.markdown("지역 (구)")
-        if c_btn.button("🔍", key="btn_gu_search"):
+        c_gu_L, c_gu_B = st.columns([4, 1])
+        c_gu_L.markdown("지역 (구)")
+        if c_gu_B.button("🔍", key="btn_gu_search"):
             st.session_state.show_gu_search = not st.session_state.show_gu_search
             
         unique_gu = sorted(df_main['지역_구'].astype(str).unique().tolist()) if '지역_구' in df_main.columns else []
         
-        # 검색창 토글
         if st.session_state.show_gu_search:
-            gu_search_term = st.text_input("구 검색", key="gu_search_term", placeholder="예: 강남구")
-            if gu_search_term:
-                unique_gu = [g for g in unique_gu if gu_search_term in g]
+            gu_term = st.text_input("구 검색", key="gu_search_term", placeholder="예: 강남구")
+            if gu_term:
+                unique_gu = [g for g in unique_gu if gu_term in g]
         
         st.multiselect("지역 (구) 선택", unique_gu, key='selected_gu', placeholder="전체 선택", label_visibility="collapsed")
         
         # [지역 (동) - 토글형]
-        c_label_d, c_btn_d = st.columns([4, 1])
-        c_label_d.markdown("지역 (동)")
-        if c_btn_d.button("🔍", key="btn_dong_search"):
+        c_dong_L, c_dong_B = st.columns([4, 1])
+        c_dong_L.markdown("지역 (동)")
+        if c_dong_B.button("🔍", key="btn_dong_search"):
             st.session_state.show_dong_search = not st.session_state.show_dong_search
             
         # 동적 동 리스트 생성
@@ -117,11 +128,10 @@ with st.sidebar:
             else:
                 unique_dong = sorted(df_main['지역_동'].astype(str).unique().tolist())
         
-        # 검색창 토글
         if st.session_state.show_dong_search:
-            dong_search_term = st.text_input("동 검색", key="dong_search_term", placeholder="예: 역삼동")
-            if dong_search_term:
-                unique_dong = [d for d in unique_dong if dong_search_term in d]
+            dong_term = st.text_input("동 검색", key="dong_search_term", placeholder="예: 역삼동")
+            if dong_term:
+                unique_dong = [d for d in unique_dong if dong_term in d]
 
         st.multiselect("지역 (동) 선택", unique_dong, key='selected_dong', placeholder="전체 선택", label_visibility="collapsed")
 
@@ -239,10 +249,6 @@ def main_list_view():
 
     if c_save.button("💾 변경사항 저장 (Beta)", type="primary"):
         with st.status("💾 서버에 저장 중...", expanded=True) as status:
-            # *주의: 프래그먼트 내부에서는 session_state가 격리될 수 있으므로, 최신 edited_df를 참조해야 함.
-            # 하지만 버튼 클릭 시점에는 이미 리렌더링 전이므로, st.data_editor의 리턴값을 직접 쓸 수 없음.
-            # 따라서 '저장' 버튼은 data_editor 아래에 배치하는 것이 원칙이나, 
-            # 사용자 요청에 의해 상단 배치 시에는 한계가 있음을 인지해야 함.
             st.warning("⚠️ 리스트 하단의 저장 버튼을 이용해주세요.")
 
     # --- DATA EDITOR (SCROLL JAIL) ---
@@ -271,7 +277,7 @@ def main_list_view():
 
     editor_key = f"editor_{st.session_state.current_sheet}_{st.session_state.editor_key_version}"
     
-    # [HEIGHT FIXED] 520px 고정 (하단 액션 버튼 노출용)
+    # [SCROLL JAIL] 520px 고정
     with st.container(height=520):
         edited_df = st.data_editor(
             df_filtered,
@@ -293,6 +299,7 @@ def main_list_view():
                 status.update(label="저장 완료!", state="complete")
                 st.success(msg)
                 time.sleep(1.5)
+                # 데이터 강제 리로드 (3단 콤보)
                 if 'df_main' in st.session_state: del st.session_state.df_main
                 st.cache_data.clear()
                 st.rerun()
@@ -344,10 +351,10 @@ def main_list_view():
                 st.session_state.action_status = 'delete_confirm'
 
         # --- CONFIRMATION DIALOGUES ---
-        # (로직은 동일하므로 생략 없이 구현)
         if st.session_state.action_status == 'move_confirm':
             target_end = f"{base_tab_name}(종료)"
             with st.status(f"🚀 [종료] {selected_count}건을 이동합니다.", expanded=True) as status:
+                st.warning("⚠️ 이동 후 현재 목록에서는 사라집니다.")
                 if st.button("확인 (이동)"):
                     success, msg, debug = engine.execute_transaction("move", selected_rows, current_tab, target_end)
                     if success:
@@ -395,9 +402,9 @@ def main_list_view():
                         if 'df_main' in st.session_state: del st.session_state.df_main
                         engine.safe_reset()
                     else: st.error(msg)
-
-else:
-    st.info("👈 목록에서 '선택' 체크박스를 클릭하면 작업 버튼이 나타납니다.")
+    else:
+        st.caption("👈 목록에서 '선택' 체크박스를 클릭하면 작업 버튼이 나타납니다.")
+        st.session_state.action_status = None
 
 # 프래그먼트 실행 (격리)
 main_list_view()
