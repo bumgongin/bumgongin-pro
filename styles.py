@@ -1,6 +1,6 @@
 # styles.py
-# 범공인 Pro v24 Enterprise - Style Definition Module (v24.21.6)
-# Updated: Hyper Scroll Lock & Touch Optimization
+# 범공인 Pro v24 Enterprise - Style Definition Module (v24.21.8)
+# Verified: Hyper Scroll Lock & Touch Optimization
 
 import streamlit as st
 
@@ -12,7 +12,7 @@ def apply_custom_css():
         /* --------------------------------------------------------------------- */
         
         /* 1. 페이지 전체 오버스크롤(당겨서 새로고침) 차단 */
-        body {
+        html, body {
             overscroll-behavior-y: contain !important;
         }
         
