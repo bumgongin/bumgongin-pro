@@ -93,9 +93,9 @@ def _calculate_walking_data(origin_x, origin_y, dest_x, dest_y):
 
 def get_transport_analysis(lat, lng):
     """
-    [섹션 1] 교통망 분석 (v24.26.3 정밀 보수)
-    - 지하철역 이름 정제 및 식당 데이터 필터링
-    - 버스 정류장 멀티 키워드 전수 조사
+    [섹션 1] 교통망 분석 (v24.26.4 순도 100% 로직)
+    - 지하철: '지하철,전철' 카테고리 필터링 및 이름 정제(괄호 제거)
+    - 버스: size=45, 멀티 키워드, 카테고리 필터링으로 정밀 카운트
     """
     default_details = pd.DataFrame(columns=['place_name', 'distance', 'phone'])
     result = {
@@ -111,20 +111,20 @@ def get_transport_analysis(lat, lng):
         if not lat or not lng:
             return result
 
-        # 1. 지하철역 검색 및 이름 정제 (식당/지점명 제거)
+        # 1. 지하철역 검색
         sub_params = {"category_group_code": "SW8", "x": lng, "y": lat, "radius": 500, "sort": "distance"}
         subways_raw = _call_kakao_local("category", sub_params)
         
-        # '지하철,전철' 카테고리만 필터링 (OO역점 식당 제외)
+        # [Step 1-1] 지하철 순도 필터링: 카테고리에 '지하철,전철' 필수
         subways = [s for s in subways_raw if '지하철,전철' in s.get('category_name', '')]
 
         if subways:
             nearest = subways[0]
             raw_name = nearest.get('place_name', '')
             
-            # 정규표현식: 괄호()와 내용 제거 및 순수 'OO역' 추출
+            # [Step 1-2] 이름 정제: 괄호와 그 안의 내용(식당명 등) 완전 제거
             clean_name = re.sub(r'\(.*\)', '', raw_name).strip()
-            station_base_name = clean_name.split()[0] # "강남역 2호선" -> "강남역"
+            station_base_name = clean_name.split()[0] 
             
             # 출구 정밀 검색
             exit_params = {"query": f"{station_base_name} 출구", "x": lng, "y": lat, "radius": 500, "sort": "distance"}
@@ -148,19 +148,20 @@ def get_transport_analysis(lat, lng):
             cols = [c for c in ['place_name', 'distance', 'phone'] if c in df.columns]
             result["details"] = df[cols].head(5)
 
-        # 2. 버스 정류장 전수 조사 (멀티 키워드 & ID 기반 중복 제거)
-        bus_keywords = ["버스정류장", "정류소", "마을버스정류장"]
-        unique_bus_stops = {} # ID를 키로 하여 중복 제거
+        # 2. 버스 정류장 전수 조사 (멀티 키워드 & size=45 & 카테고리 필터)
+        bus_keywords = ["정류장", "버스정류장", "정류소"]
+        unique_bus_stops = {}
 
         for kw in bus_keywords:
-            bus_params = {"query": kw, "x": lng, "y": lat, "radius": 500, "size": 15}
+            # size를 45로 늘려 누락 방지
+            bus_params = {"query": kw, "x": lng, "y": lat, "radius": 500, "size": 45}
             found_buses = _call_kakao_local("keyword", bus_params)
             
             for b in found_buses:
                 p_id = b.get('id')
                 cat_name = b.get('category_name', '')
-                # 카테고리에 '버스' 또는 '정류장'이 포함된 데이터만 수집
-                if p_id and ('버스' in cat_name or '정류장' in cat_name):
+                # [Step 1-3] 버스 카테고리 정밀 필터 (교통,운송 > 버스)
+                if p_id and ('교통,운송 > 버스' in cat_name or '정류장' in cat_name):
                     unique_bus_stops[p_id] = b
         
         result["bus_stop_count"] = len(unique_bus_stops)
@@ -173,7 +174,8 @@ def get_transport_analysis(lat, lng):
 
 def get_commercial_analysis(lat, lng):
     """
-    [섹션 2] 상권 인프라 분석
+    [섹션 2] 상권 인프라 분석 (v24.26.4 앵커 확장)
+    - 7대 핵심 앵커(스타벅스, 맥도날드, 올리브영, 다이소, 버거킹, 써브웨이, 메가커피)
     """
     default_counts = {k: 0 for k in ["음식점", "카페", "편의점", "은행", "병원"]}
     default_anchors = pd.DataFrame(columns=["브랜드", "지점명", "거리(m)", "도보(분)"])
@@ -190,8 +192,10 @@ def get_commercial_analysis(lat, lng):
             current_counts[name] = len(data)
         result["counts"] = current_counts
 
+        # [Step 2] 앵커 시설 7종으로 대폭 확장
         anchors_list = []
-        target_anchors = ["스타벅스", "맥도날드", "올리브영"]
+        target_anchors = ["스타벅스", "맥도날드", "올리브영", "다이소", "버거킹", "써브웨이", "메가커피"]
+        
         for anchor in target_anchors:
             params = {"query": anchor, "x": lng, "y": lat, "radius": 1000, "sort": "distance"}
             data = _call_kakao_local("keyword", params)
