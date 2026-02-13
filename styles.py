@@ -1,6 +1,6 @@
 # styles.py
-# 범공인 Pro v24 Enterprise - Style Definition Module (v24.21.14)
-# Final Fix: Touch Restoration & Multi-Layer Scroll Lock
+# 범공인 Pro v24 Enterprise - Style Definition Module (v24.21.15)
+# Final Fix: Layer Isolation & Triple-Lock System
 
 import streamlit as st
 
@@ -8,7 +8,7 @@ def apply_custom_css():
     st.markdown("""
         <style>
         /* --------------------------------------------------------------------- */
-        /* [CORE] Multi-Layer Viewport Locking System (100dvh)                   */
+        /* [CORE] Layer Isolation & Viewport Locking (100dvh)                    */
         /* --------------------------------------------------------------------- */
         
         /* 1. 최상위 레벨 고정 */
@@ -18,45 +18,57 @@ def apply_custom_css():
             overscroll-behavior: none !important;
             margin: 0 !important;
             padding: 0 !important;
-            /* pointer-events: none 삭제됨 -> 터치 부활 */
+            position: fixed !important; /* 물리적 고정 */
+            width: 100% !important;
         }
         
-        /* 2. 앱 컨테이너 2차 고정 (중첩 차단) */
+        /* 2. 앱 컨테이너 레이어 격리 (핵심) */
         .stAppViewContainer {
             height: 100dvh !important;
             overflow: hidden !important;
-            overscroll-behavior: contain !important;
-            /* touch-action: none 삭제됨 -> 내부 스크롤 허용 */
+            overscroll-behavior: none !important;
+            /* 렌더링 레이어 분리 -> 스크롤 간섭 차단 */
+            isolation: isolate !important; 
+            touch-action: none;
         }
         
-        /* 3. 메인 컨텐츠 영역 (실제 터치 공간) */
+        /* 3. 메인 컨텐츠 영역 */
         .main .block-container {
             padding-top: 1rem !important;
             padding-bottom: 2rem !important;
             max-width: 100% !important;
             height: 100% !important;
-            overflow-y: auto !important; /* 메인 스크롤만 허용 */
+            overflow-y: auto !important; /* 메인 스크롤 허용 */
             -webkit-overflow-scrolling: touch !important;
-            overscroll-behavior: contain !important; /* 3차 차단 */
+            overscroll-behavior: contain !important;
         }
 
-        /* 4. 데이터 에디터 컨테이너 (스크롤 감옥) */
+        /* --------------------------------------------------------------------- */
+        /* [DATA EDITOR] Triple-Lock System                                      */
+        /* --------------------------------------------------------------------- */
+
+        /* Lock 1: 컨테이너 */
         div[data-testid="stDataEditor"] {
             border: 1px solid #e0e0e0;
             border-radius: 8px;
             background-color: #ffffff;
-            /* 수직 스크롤은 허용하되, 부모로 전파 차단 */
-            touch-action: pan-y !important; 
-            overscroll-behavior: contain !important; /* 4차 차단 */
+            touch-action: pan-y !important;
+            overscroll-behavior: none !important;
             -webkit-user-drag: none !important;
         }
 
-        /* 5. 리스트 내부 스크롤바 제어 */
+        /* Lock 2: 내부 DIV (스크롤바 영역) */
         div[data-testid="stDataEditor"] > div {
             overflow-y: auto !important; 
-            overscroll-behavior: contain !important;
+            overscroll-behavior: none !important; /* 체이닝 완전 차단 */
             -webkit-overflow-scrolling: touch !important; 
             scrollbar-width: thin;
+        }
+        
+        /* Lock 3: 캔버스 및 하위 요소 (포커스 튕김 방지) */
+        div[data-testid="stDataEditor"] canvas,
+        div[data-testid="stDataEditor"] div {
+            overscroll-behavior: none !important;
         }
         
         /* 스크롤바 디자인 */
