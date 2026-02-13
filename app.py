@@ -1,19 +1,19 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.23.2)
-# Final Integration: Map, Edit, List, Card, Sync
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.23.5)
+# Feature: Map, Detail Edit, List/Card Sync, Full Integration
 
 import streamlit as st
 import pandas as pd
 import time
 import math
-import core_engine as engine  # [Core Engine v24.23.2]
-import map_service as map_api # [Map Service v24.23.1]
-import styles                 # [Style Module v24.23.2]
+import core_engine as engine  # [Core Engine v24.23.5]
+import map_service as map_api # [Map Service v24.23.5]
+import styles                 # [Style Module v24.22.6] (기존 스타일 사용)
 
 # ==============================================================================
-# [INIT]
+# [INIT] 시스템 초기화
 # ==============================================================================
-st.set_page_config(page_title="범공인 Pro (v24.23.2)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="범공인 Pro (v24.23.5)", layout="wide", initial_sidebar_state="expanded")
 styles.apply_custom_css()
 
 if 'current_sheet' not in st.session_state: st.session_state.current_sheet = engine.SHEET_NAMES[0]
@@ -30,10 +30,11 @@ engine.initialize_search_state()
 def sess(key): return st.session_state[key]
 
 # ==============================================================================
-# [SIDEBAR]
+# [SIDEBAR] 필터링 컨트롤 타워
 # ==============================================================================
 with st.sidebar:
     st.header("📂 관리 도구")
+    
     with st.container(border=True):
         st.markdown("##### 📄 작업 시트")
         try: curr_idx = engine.SHEET_NAMES.index(st.session_state.current_sheet)
@@ -47,8 +48,10 @@ with st.sidebar:
             st.session_state.page_num = 1
             st.session_state.selected_item = None
             if 'df_main' in st.session_state: del st.session_state.df_main
+            
             keys_to_clear = [k for k in st.session_state.keys() if k.startswith("chk_")]
             for k in keys_to_clear: del st.session_state[k]
+            
             st.cache_data.clear()
             st.rerun()
 
