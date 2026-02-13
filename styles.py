@@ -1,6 +1,6 @@
 # styles.py
-# 범공인 Pro v24 Enterprise - Style Definition Module (v24.21.13)
-# Final Fix: 100dvh Locking & Pointer Insulation
+# 범공인 Pro v24 Enterprise - Style Definition Module (v24.21.14)
+# Final Fix: Touch Restoration & Multi-Layer Scroll Lock
 
 import streamlit as st
 
@@ -8,46 +8,47 @@ def apply_custom_css():
     st.markdown("""
         <style>
         /* --------------------------------------------------------------------- */
-        /* [CORE] Dynamic Viewport Locking System (100dvh)                       */
+        /* [CORE] Multi-Layer Viewport Locking System (100dvh)                   */
         /* --------------------------------------------------------------------- */
         
-        /* 1. 페이지 전체 고정 (동적 뷰포트 높이 사용) */
+        /* 1. 최상위 레벨 고정 */
         html, body {
             height: 100dvh !important;
             overflow: hidden !important;
             overscroll-behavior: none !important;
             margin: 0 !important;
             padding: 0 !important;
+            /* pointer-events: none 삭제됨 -> 터치 부활 */
         }
         
-        /* 2. 메인 컨테이너 고정 및 터치 절연 */
+        /* 2. 앱 컨테이너 2차 고정 (중첩 차단) */
         .stAppViewContainer {
             height: 100dvh !important;
             overflow: hidden !important;
-            /* 기본적으로 터치 무시 (자식 요소에서 복구) */
-            pointer-events: none; 
-            touch-action: none;
+            overscroll-behavior: contain !important;
+            /* touch-action: none 삭제됨 -> 내부 스크롤 허용 */
         }
         
-        /* 3. 실제 컨텐츠 영역만 터치 허용 (정밀 수술) */
+        /* 3. 메인 컨텐츠 영역 (실제 터치 공간) */
         .main .block-container {
-            pointer-events: auto !important; /* 여기서 터치 부활 */
             padding-top: 1rem !important;
             padding-bottom: 2rem !important;
             max-width: 100% !important;
             height: 100% !important;
-            overflow-y: auto !important; /* 메인 스크롤 허용 */
+            overflow-y: auto !important; /* 메인 스크롤만 허용 */
             -webkit-overflow-scrolling: touch !important;
+            overscroll-behavior: contain !important; /* 3차 차단 */
         }
 
-        /* 4. 데이터 에디터 컨테이너 */
+        /* 4. 데이터 에디터 컨테이너 (스크롤 감옥) */
         div[data-testid="stDataEditor"] {
             border: 1px solid #e0e0e0;
             border-radius: 8px;
             background-color: #ffffff;
-            touch-action: pan-y !important;
+            /* 수직 스크롤은 허용하되, 부모로 전파 차단 */
+            touch-action: pan-y !important; 
+            overscroll-behavior: contain !important; /* 4차 차단 */
             -webkit-user-drag: none !important;
-            pointer-events: auto !important;
         }
 
         /* 5. 리스트 내부 스크롤바 제어 */
@@ -81,7 +82,6 @@ def apply_custom_css():
             width: 100%;
             border-radius: 6px;
             box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-            pointer-events: auto !important; /* 버튼 터치 보장 */
         }
         .stButton button:active { transform: scale(0.98); }
         
@@ -89,23 +89,19 @@ def apply_custom_css():
         input[type=number], input[type=text] { 
             min-height: 45px !important; 
             font-size: 16px !important; 
-            pointer-events: auto !important;
         }
         
         /* 멀티셀렉트 터치 영역 */
         div[data-baseweb="select"] > div {
             min-height: 45px !important;
-            pointer-events: auto !important;
         }
 
         /* --------------------------------------------------------------------- */
         /* [LAYOUT] Sidebar & UI Structure                                       */
         /* --------------------------------------------------------------------- */
         
-        /* 사이드바는 별도 스크롤 허용 */
         section[data-testid="stSidebar"] {
             overflow-y: auto !important; 
-            pointer-events: auto !important; /* 사이드바 터치 허용 */
             overscroll-behavior: contain !important;
             touch-action: pan-y !important;
         }
