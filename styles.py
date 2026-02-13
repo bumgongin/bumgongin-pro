@@ -1,6 +1,6 @@
 # styles.py
-# 범공인 Pro v24 Enterprise - Style Definition Module (v24.21.8)
-# Verified: Hyper Scroll Lock & Touch Optimization
+# 범공인 Pro v24 Enterprise - Style Definition Module (v24.21.9)
+# Final Fix: Touch Action Control & Overflow Visibility
 
 import streamlit as st
 
@@ -21,18 +21,27 @@ def apply_custom_css():
             overscroll-behavior-y: contain !important;
         }
 
-        /* 3. 데이터 리스트 컨테이너 (높이 고정) */
+        /* 3. 데이터 에디터 터치 간섭 제거 (핵심) */
         div[data-testid="stDataEditor"] {
             border: 1px solid #e0e0e0;
             border-radius: 8px;
             background-color: #ffffff;
-            height: 520px !important; /* 강제 고정 */
+            /* 터치 액션을 Y축 스크롤로 제한 (좌우 스와이프/확대 차단) */
+            touch-action: pan-y !important; 
         }
 
-        /* 4. 리스트 내부 스크롤바 커스터마이징 */
+        /* 4. 에디터 내부 요소 상호작용 제한 */
+        div[data-testid="stDataEditor"] * {
+            /* 텍스트 선택 방지 (드래그 오인식 방지) */
+            user-select: none !important;
+            -webkit-user-select: none !important;
+            /* 내부 팝업(달력 등) 잘림 방지 */
+            overflow: visible !important; 
+        }
+
+        /* 5. 리스트 내부 스크롤바 커스터마이징 */
         div[data-testid="stDataEditor"] > div {
-            height: 100% !important;
-            overflow-y: auto !important;
+            /* overflow-y는 app.py의 height 설정에 의해 자동 제어됨 */
             -webkit-overflow-scrolling: touch !important; /* iOS 필수 */
             scrollbar-width: thin;
             scrollbar-color: #888 #f1f1f1;
