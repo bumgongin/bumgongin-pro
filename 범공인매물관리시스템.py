@@ -8,13 +8,13 @@ import uuid
 # [MODULE: SYSTEM SETUP]
 # 1. 시스템 설정
 st.set_page_config(
-    page_title="범공인 Pro (v24.19.3)",
+    page_title="범공인 Pro (v24.19.5)",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 # [MODULE: STYLES & CSS]
-# 2. 스타일 설정 (모바일 터치 최적화 & 스크롤 고정)
+# 2. 스타일 설정 (모바일 최적화)
 st.markdown("""
     <style>
     /* 버튼 및 입력창 크기 확보 */
@@ -42,24 +42,17 @@ st.markdown("""
         padding: 10px 0;
     }
     
-    /* 액션 버튼 구분 */
-    div[data-testid="stHorizontalBlock"] button[kind="secondary"] { 
-        border: 1px solid #e0e0e0; 
-    }
-
     /* 모바일 최적화 */
     @media (max-width: 768px) { 
         .stDataEditor { font-size: 14px !important; }
         h1 { font-size: 22px !important; }
         div[data-testid="column"] { margin-bottom: 8px; }
-        /* 스크롤 출렁임 방지 */
-        .stDataFrame { overflow: auto; }
     }
     </style>
 """, unsafe_allow_html=True)
 
 # [MODULE: CONSTANTS]
-# 3. 상수 및 매핑 (변수명 통합)
+# 3. 상수 및 매핑
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1bmTnLu-vMvlAGRSsCI4a8lk00U38covWl5Wfn9JZYVU"
 SHEET_GIDS = {
     "임대": "2063575964", 
@@ -110,22 +103,18 @@ def standardize_columns(df):
 
 def initialize_search_state():
     """모든 필터 변수를 미리 초기화하여 AttributeError 방지"""
-    # 공통 필터
     defaults = {
         'search_keyword': "", 'exact_bunji': "",
         'selected_cat': [], 'selected_gu': [], 'selected_dong': [],
         'is_no_kwon': False,
-        # 임대 관련
         'min_dep': 0.0, 'max_dep': 100000000.0,
         'min_rent': 0.0, 'max_rent': 10000000.0,
         'min_kwon': 0.0, 'max_kwon': 100000000.0,
         'min_man': 0.0, 'max_man': 1000000.0,
-        # 매매 관련
         'min_price': 0.0, 'max_price': 100000000.0,
         'min_yield': 0.0, 'max_yield': 100.0,
         'min_land': 0.0, 'max_land': 1000000.0,
         'min_total': 0.0, 'max_total': 1000000.0,
-        # 공통 수치
         'min_area': 0.0, 'max_area': 1000000.0,
         'min_fl': -20.0, 'max_fl': 100.0
     }
@@ -169,7 +158,7 @@ def load_data(sheet_name):
     return df
 
 # [MODULE: UPDATE ENGINE]
-# 6. 데이터 쓰기 엔진
+# 6. 데이터 쓰기 엔진 (정밀 매칭 최적화)
 def update_data(action_type, target_rows, source_sheet, target_sheet=None):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
@@ -182,7 +171,7 @@ def update_data(action_type, target_rows, source_sheet, target_sheet=None):
         
         target_rows_clean = target_rows.drop(columns=['선택', 'IronID'], errors='ignore')
         
-        # 정밀 매칭 (복합 키 + 내용 앞부분)
+        # 정밀 매칭 (복합 키 + 내용 Regex 정제)
         match_cols = ['번지', '층', '면적', '보증금', '매매가', '월차임', '내용']
         valid_keys = [k for k in match_cols if k in src_df.columns and k in target_rows_clean.columns]
         
@@ -193,7 +182,8 @@ def update_data(action_type, target_rows, source_sheet, target_sheet=None):
             temp_df = df.copy()
             for k in valid_keys:
                 if k == '내용':
-                    temp_df[k] = temp_df[k].astype(str).str.replace(r'\s+', '', regex=True).str[:10]
+                    # [최적화] 특수문자/공백 제거 후 앞 10자리 비교
+                    temp_df[k] = temp_df[k].astype(str).str.replace(r'[^가-힣a-zA-Z0-9]', '', regex=True).str[:10]
                 else:
                     temp_df[k] = temp_df[k].astype(str).str.replace(',', '').str.strip()
             return temp_df
@@ -201,23 +191,24 @@ def update_data(action_type, target_rows, source_sheet, target_sheet=None):
         src_prep = prepare_match_key(src_df)
         tgt_prep = prepare_match_key(target_rows_clean)
         
-        if action_type == "delete" or action_type == "move":
+        if action_type in ["delete", "move", "restore"]:
             merged = src_prep.merge(tgt_prep[valid_keys], on=valid_keys, how='left', indicator=True)
             rows_to_keep_mask = merged['_merge'] == 'left_only'
             new_src_df = src_df[rows_to_keep_mask]
             
             if len(new_src_df) == len(src_df):
-                return False, "❌ 일치하는 데이터를 찾지 못했습니다."
+                return False, "❌ 일치하는 데이터를 찾지 못했습니다. (이미 변경되었을 수 있음)"
 
-            if action_type == "move" and target_sheet:
+            if action_type in ["move", "restore"] and target_sheet:
                 tgt_df_remote = conn.read(spreadsheet=SHEET_URL, worksheet=target_sheet, ttl=0)
                 tgt_df_remote = standardize_columns(tgt_df_remote)
                 new_tgt_df = pd.concat([tgt_df_remote, target_rows_clean], ignore_index=True)
                 conn.update(spreadsheet=SHEET_URL, worksheet=target_sheet, data=new_tgt_df)
             
             conn.update(spreadsheet=SHEET_URL, worksheet=source_sheet, data=new_src_df)
-            action_name = "이동" if action_type == "move" else "삭제"
-            return True, f"✅ {len(target_rows)}건 {action_name} 완료!"
+            
+            action_map = {"move": "종료", "delete": "삭제", "restore": "복구"}
+            return True, f"✅ {len(target_rows)}건 {action_map[action_type]} 완료!"
 
         elif action_type == "copy":
             if not target_sheet: return False, "❌ 타겟 시트 오류"
@@ -266,7 +257,7 @@ if df_main is None:
 # 8. 메인 프래그먼트 (깜빡임 방지 & 상태 초기화)
 @st.fragment
 def main_interface():
-    # 1. 상태 변수 초기화 (AttributeError 방지)
+    # 1. 상태 변수 초기화
     initialize_search_state()
 
     def get_max_if_exists(col):
@@ -280,42 +271,46 @@ def main_interface():
 
     is_sale_mode = "매매" in st.session_state.current_sheet
 
-    # --- FILTER SECTION ---
+    # --- FILTER SECTION (물리적 분리) ---
     with st.expander("🔍 정밀 검색 및 제어판 (열기/닫기)", expanded=True):
-        # 상단 검색창 분리 (터치 간섭 최소화)
-        c_search, c_bunji = st.columns([1.5, 1])
-        with c_search: st.text_input("통합 검색", key='search_keyword', placeholder="내용, 건물명, 번지 등")
-        with c_bunji: st.text_input("번지 정밀검색", key='exact_bunji', placeholder="예: 50-1")
         
-        st.write("") # 간격 추가
+        # [구역 1] 텍스트 검색 (컨테이너 분리)
+        with st.container(border=True):
+            st.markdown("**1. 키워드 검색**")
+            c_search, c_bunji = st.columns([1.5, 1])
+            with c_search: st.text_input("통합 검색", key='search_keyword', placeholder="내용, 건물명, 번지 등", label_visibility="collapsed")
+            with c_bunji: st.text_input("번지 정밀검색", key='exact_bunji', placeholder="예: 50-1", label_visibility="collapsed")
+        
+        st.write("") # 간격
 
-        # 멀티 필터 (중복 선택 가능)
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            unique_cat = []
-            if '구분' in df_main.columns: unique_cat = sorted(df_main['구분'].astype(str).unique().tolist())
-            st.multiselect("구분", unique_cat, key='selected_cat', placeholder="전체")
+        # [구역 2] 항목 선택 (컨테이너 분리)
+        with st.container(border=True):
+            st.markdown("**2. 항목 선택**")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                unique_cat = []
+                if '구분' in df_main.columns: unique_cat = sorted(df_main['구분'].astype(str).unique().tolist())
+                st.multiselect("구분", unique_cat, key='selected_cat', placeholder="전체")
 
-        with c2:
-            unique_gu = []
-            if '지역_구' in df_main.columns: unique_gu = sorted(df_main['지역_구'].astype(str).unique().tolist())
-            st.multiselect("지역 (구)", unique_gu, key='selected_gu', placeholder="전체")
-            
-        with c3:
-            unique_dong = []
-            if '지역_동' in df_main.columns:
-                # 선택된 구에 해당하는 동만 필터링
-                current_gu = st.session_state.selected_gu
-                if current_gu:
-                    filtered_df = df_main[df_main['지역_구'].isin(current_gu)]
-                    unique_dong = sorted(filtered_df['지역_동'].astype(str).unique().tolist())
-                else:
-                    unique_dong = sorted(df_main['지역_동'].astype(str).unique().tolist())
-            st.multiselect("지역 (동)", unique_dong, key='selected_dong', placeholder="전체")
+            with c2:
+                unique_gu = []
+                if '지역_구' in df_main.columns: unique_gu = sorted(df_main['지역_구'].astype(str).unique().tolist())
+                st.multiselect("지역 (구)", unique_gu, key='selected_gu', placeholder="전체")
+                
+            with c3:
+                unique_dong = []
+                if '지역_동' in df_main.columns:
+                    current_gu = st.session_state.selected_gu
+                    if current_gu:
+                        filtered_df = df_main[df_main['지역_구'].isin(current_gu)]
+                        unique_dong = sorted(filtered_df['지역_동'].astype(str).unique().tolist())
+                    else:
+                        unique_dong = sorted(df_main['지역_동'].astype(str).unique().tolist())
+                st.multiselect("지역 (동)", unique_dong, key='selected_dong', placeholder="전체")
 
         st.divider()
         
-        # 수치 필터
+        # [구역 3] 수치 필터
         r1, r2, r3 = st.columns(3)
         LIMIT_HUGE = 100000000.0 
 
@@ -375,23 +370,18 @@ def main_interface():
                 if max_area > 0: c_a.number_input("면적 최소", step=5.0, key='min_area', value=sess('min_area'))
                 if max_area > 0: c_b.number_input("면적 최대", step=5.0, key='max_area', value=sess('max_area'))
 
-    # --- FILTER LOGIC (Updated for Multi-Select) ---
+    # --- FILTER LOGIC ---
     df_filtered = df_main.copy()
 
-    # 1. 구분 (isin 사용)
     if '구분' in df_filtered.columns and st.session_state.selected_cat:
         df_filtered = df_filtered[df_filtered['구분'].isin(st.session_state.selected_cat)]
-    
-    # 2. 지역 (isin 사용)
     if '지역_구' in df_filtered.columns and st.session_state.selected_gu:
         df_filtered = df_filtered[df_filtered['지역_구'].isin(st.session_state.selected_gu)]
     if '지역_동' in df_filtered.columns and st.session_state.selected_dong:
         df_filtered = df_filtered[df_filtered['지역_동'].isin(st.session_state.selected_dong)]
-
     if '번지' in df_filtered.columns and st.session_state.exact_bunji:
         df_filtered = df_filtered[df_filtered['번지'].astype(str).str.strip() == st.session_state.exact_bunji.strip()]
 
-    # 수치 필터
     if is_sale_mode:
         if '매매가' in df_filtered.columns:
             df_filtered = df_filtered[(df_filtered['매매가'] >= st.session_state.min_price) & (df_filtered['매매가'] <= st.session_state.max_price)]
@@ -420,22 +410,19 @@ def main_interface():
         mask = search_scope.fillna("").astype(str).apply(lambda x: ' '.join(x), axis=1).str.contains(search_val, case=False)
         df_filtered = df_filtered[mask]
 
-    # --- LIST VIEW ---
+    # --- LIST VIEW (스크롤 고정) ---
     if len(df_filtered) == 0:
         st.warning("🔍 검색 결과가 없습니다.")
     else:
         st.info(f"📋 **{st.session_state.current_sheet}** 검색 결과: **{len(df_filtered)}**건")
 
-    # 편집 가능 컬럼
     editable_cols = ["내용", "보증금", "월차임", "매매가", "권리금", "관리비"]
     disabled_cols = [c for c in df_filtered.columns if c not in ['선택'] + editable_cols]
     
-    # IronID 숨김 처리 (None 사용)
     col_cfg = {
         "선택": st.column_config.CheckboxColumn(width="small"),
         "IronID": None
     }
-    
     if "매매가" in df_filtered.columns: col_cfg["매매가"] = st.column_config.NumberColumn("매매가(만)", format="%d")
     if "보증금" in df_filtered.columns: col_cfg["보증금"] = st.column_config.NumberColumn("보증금(만)", format="%d")
     if "월차임" in df_filtered.columns: col_cfg["월차임"] = st.column_config.NumberColumn("월세(만)", format="%d")
@@ -448,15 +435,16 @@ def main_interface():
 
     editor_key = f"editor_{st.session_state.current_sheet}"
     
-    edited_df = st.data_editor(
-        df_filtered,
-        disabled=disabled_cols,
-        use_container_width=True,
-        hide_index=True,
-        height=600,
-        column_config=col_cfg,
-        key=editor_key
-    )
+    # [SCROLL LOCK] 리스트 영역 높이 고정
+    with st.container(height=550):
+        edited_df = st.data_editor(
+            df_filtered,
+            disabled=disabled_cols,
+            use_container_width=True,
+            hide_index=True,
+            column_config=col_cfg,
+            key=editor_key
+        )
 
     # --- ACTION BAR ---
     st.divider()
@@ -466,30 +454,59 @@ def main_interface():
     if selected_count > 0:
         st.success(f"✅ {selected_count}건 선택됨")
         
-        ac1, ac2, ac3 = st.columns(3)
         current_tab = st.session_state.current_sheet
-        base_tab = current_tab.replace("(종료)", "").replace("브리핑", "").strip()
-        target_end_tab = f"{base_tab}(종료)"
-        target_brief_tab = f"{base_tab}브리핑"
+        is_ended = "(종료)" in current_tab
+        is_briefing = "브리핑" in current_tab
+        base_tab_name = current_tab.replace("(종료)", "").replace("브리핑", "").strip()
         
+        ac1, ac2, ac3 = st.columns(3)
+        
+        # 1. 종료/복구
         with ac1:
-            is_end_tab = "(종료)" in current_tab
-            if st.button(f"🚀 종료 처리", use_container_width=True, disabled=is_end_tab):
-                st.session_state.action_status = 'move_confirm'
+            if is_briefing: pass
+            elif is_ended:
+                target_restore = base_tab_name
+                if st.button(f"♻️ 매물 복구 ({target_restore})", type="primary", use_container_width=True):
+                    st.session_state.action_status = 'restore_confirm'
+            else:
+                target_end = f"{base_tab_name}(종료)"
+                if st.button(f"🚀 종료 처리 ({target_end})", use_container_width=True):
+                    st.session_state.action_status = 'move_confirm'
+
+        # 2. 복사
         with ac2:
-            is_brief_tab = "브리핑" in current_tab
-            if st.button(f"📋 브리핑 복사", use_container_width=True, disabled=is_brief_tab):
-                st.session_state.action_status = 'copy_confirm'
+            if not is_briefing:
+                target_brief = f"{base_tab_name}브리핑"
+                if st.button(f"📋 브리핑 복사 ({target_brief})", use_container_width=True):
+                    st.session_state.action_status = 'copy_confirm'
+
+        # 3. 삭제
         with ac3:
             if st.button("🗑️ 영구 삭제", type="primary", use_container_width=True):
                 st.session_state.action_status = 'delete_confirm'
 
-        # Action Logic
+        # Action Logic (Confirm)
         if st.session_state.action_status == 'move_confirm':
-            with st.status(f"🚀 [이동] '{target_end_tab}'으로 보냅니다.", expanded=True) as status:
-                st.warning("⚠️ 이동 후 원본에서는 삭제됩니다.")
+            target_end = f"{base_tab_name}(종료)"
+            with st.status(f"🚀 [종료] '{target_end}'으로 이동합니다.", expanded=True) as status:
+                st.warning("⚠️ 이동 후 현재 목록에서는 사라집니다.")
                 if st.button("확인 (이동)"):
-                    success, msg = update_data("move", selected_rows, current_tab, target_end_tab)
+                    success, msg = update_data("move", selected_rows, current_tab, target_end)
+                    if success:
+                        status.update(label="완료", state="complete")
+                        st.success(msg)
+                        time.sleep(1.5)
+                        st.session_state.action_status = None
+                        st.cache_data.clear()
+                        st.rerun()
+                    else: st.error(msg)
+
+        elif st.session_state.action_status == 'restore_confirm':
+            target_restore = base_tab_name
+            with st.status(f"♻️ [복구] '{target_restore}' 시트로 되돌립니다.", expanded=True) as status:
+                st.info("ℹ️ 종료 탭에서 사라지고 원본 탭에 다시 나타납니다.")
+                if st.button("확인 (복구)"):
+                    success, msg = update_data("restore", selected_rows, current_tab, target_restore)
                     if success:
                         status.update(label="완료", state="complete")
                         st.success(msg)
@@ -500,10 +517,11 @@ def main_interface():
                     else: st.error(msg)
 
         elif st.session_state.action_status == 'copy_confirm':
-            with st.status(f"📋 [복사] '{target_brief_tab}'에 추가합니다.", expanded=True) as status:
+            target_brief = f"{base_tab_name}브리핑"
+            with st.status(f"📋 [복사] '{target_brief}'에 추가합니다.", expanded=True) as status:
                 st.info("ℹ️ 원본은 유지됩니다.")
                 if st.button("확인 (복사)"):
-                    success, msg = update_data("copy", selected_rows, current_tab, target_brief_tab)
+                    success, msg = update_data("copy", selected_rows, current_tab, target_brief)
                     if success:
                         status.update(label="완료", state="complete")
                         st.success(msg)
