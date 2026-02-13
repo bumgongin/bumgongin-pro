@@ -1,6 +1,6 @@
 # core_engine.py
-# 범공인 Pro v24 Enterprise - Core Data Engine Module (v24.23.5)
-# Feature: Full Logic Restoration & Data Integrity (Map Logic Removed)
+# 범공인 Pro v24 Enterprise - Core Data Engine Module (v24.24.1)
+# Feature: Advanced Header Synonyms & Regex Data Sanitization
 
 import streamlit as st
 import pandas as pd
@@ -12,6 +12,8 @@ import re
 import traceback
 import math
 from datetime import datetime
+import requests
+import json
 
 # ==============================================================================
 # [SECTION 1: GLOBAL CONFIGURATION]
@@ -31,26 +33,26 @@ STRING_COLS = ["구분", "지역_구", "지역_동", "번지", "건물명", "내
 REQUIRED_COLS = ["번지"]
 
 # ==============================================================================
-# [SECTION 2: DATA SANITIZATION ENGINE]
+# [SECTION 2: DATA SANITIZATION ENGINE (ENHANCED)]
 # ==============================================================================
 
 def normalize_headers(df):
     """
     구글 시트 헤더를 표준화합니다.
-    공백 제거 및 동의어 처리
+    동의어 사전을 대폭 확장하여 실무 용어에 대응합니다.
     """
     df.columns = df.columns.str.replace(' ', '').str.strip()
     synonym_map = {
-        "보증금": ["보증금(만원)", "기보증금(만원)", "기보증금", "보증금"],
-        "월차임": ["월차임(만원)", "기월세(만원)", "월세(만원)", "월세", "기월세"],
+        "보증금": ["보증금(만원)", "기보증금(만원)", "기보증금", "보증금", "보증"],
+        "월차임": ["월차임(만원)", "기월세(만원)", "월세(만원)", "월세", "기월세", "차임"],
         "권리금": ["권리금_입금가(만원)", "권리금(만원)", "권리금"],
         "관리비": ["관리비(만원)", "관리비"],
-        "매매가": ["매매가(만원)", "매매금액(만원)", "매매금액", "매매가"],
+        "매매가": ["매매가(만원)", "매매금액(만원)", "매매금액", "매매가", "매가", "매매"],
         "면적": ["전용면적(평)", "실평수", "전용면적", "면적"],
         "대지면적": ["대지면적(평)", "대지", "대지면적"],
         "연면적": ["연면적(평)", "연면적"],
         "수익률": ["수익률(%)", "수익률"],
-        "층": ["해당층", "층", "지상층"],
+        "층": ["해당층", "층", "지상층", "층수"],
         "내용": ["매물특징", "특징", "비고", "내용"],
         "번지": ["지역_번지", "번지", "지번"],
         "구분": ["매물구분", "구분"],
@@ -66,23 +68,28 @@ def normalize_headers(df):
 
 def sanitize_dataframe(df):
     """
-    데이터프레임 값을 정제합니다.
-    숫자 컬럼은 콤마 제거 후 숫자 변환, 문자 컬럼은 공백 정리
+    데이터프레임 값을 강력하게 정제합니다.
+    [핵심 수정] 정규표현식을 사용하여 숫자형 컬럼에서 '만원', '평', '층' 등 불순물을 강제로 제거합니다.
     """
     for col in NUMERIC_COLS:
         if col in df.columns:
             try:
-                # 콤마 제거 및 숫자 변환 (실패 시 0)
-                df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '').str.strip(), errors='coerce').fillna(0)
+                # 1. 문자열로 변환
+                # 2. 정규식: 숫자(0-9)와 소수점(.)을 제외한 모든 문자 제거
+                # 3. 빈 문자열이 되면 NaN 처리 후 0으로 채움
+                cleaned_series = df[col].astype(str).str.replace(r'[^0-9.]', '', regex=True)
+                df[col] = pd.to_numeric(cleaned_series, errors='coerce').fillna(0)
             except: 
                 df[col] = 0.0
+                
     for col in STRING_COLS:
         if col in df.columns:
             try:
-                # 불필요한 공백 제거
+                # 문자열 컬럼: 불필요한 연속 공백을 하나로 줄임
                 df[col] = df[col].astype(str).str.replace(r'\s+', ' ', regex=True).str.strip()
             except: 
                 df[col] = ""
+                
     return df.fillna("")
 
 def validate_data_integrity(df):
@@ -242,7 +249,8 @@ def update_single_row(updated_row, sheet_name):
                     # 숫자형 데이터 안전 변환
                     if k in NUMERIC_COLS:
                         try: 
-                            v_str = str(v).replace(',', '').strip()
+                            # 정규식 정제 로직과 동일하게 처리
+                            v_str = re.sub(r'[^0-9.]', '', str(v))
                             v = float(v_str) if v_str else 0.0
                         except: v = 0.0
                     sheet_data.at[target_idx, k] = v
@@ -304,7 +312,8 @@ def save_updates_to_sheet(edited_df, original_df, sheet_name):
                                 val = df_new.loc[sig, col]
                                 if col in NUMERIC_COLS:
                                     try: 
-                                        val = float(str(val).replace(',', ''))
+                                        val_str = re.sub(r'[^0-9.]', '', str(val))
+                                        val = float(val_str) if val_str else 0.0
                                     except: val = 0.0
                                 sheet_data.at[match_idx, col] = val
                         update_count += 1
