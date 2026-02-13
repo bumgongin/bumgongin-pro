@@ -24,8 +24,8 @@ KAKAO_HEADERS = {
     "Authorization": f"KakaoAK {KAKAO_REST_KEY}"
 }
 
-# 공통 설정
-TIMEOUT_SEC = 2  # 모든 요청은 2초 내 응답 제한
+# 공통 설정 (성능 최적화: 1.5초 제한)
+TIMEOUT_SEC = 1.5
 
 # ==========================================
 # 2. 유틸리티 함수 (내부 로직 - 방어적 코딩)
@@ -88,46 +88,51 @@ def _calculate_walking_data(origin_x, origin_y, dest_x, dest_y):
         return 0, 0
 
 # ==========================================
-# 3. 핵심 분석 함수 (Zero-Failure 구조)
+# 3. 핵심 분석 함수 (2-Button System)
 # ==========================================
 
-def get_transport_analysis(lat, lng):
+def get_commercial_analysis(lat, lng):
     """
-    [섹션 1] 교통망 분석 (v24.26.4 순도 100% 로직)
-    - 지하철: '지하철,전철' 카테고리 필터링 및 이름 정제(괄호 제거)
-    - 버스: size=45, 멀티 키워드, 카테고리 필터링으로 정밀 카운트
+    [함수 1] 통합 상권 분석 (v24.27.0)
+    - 지하철역 분석 (기존 Transport 흡수)
+    - 10대 업종 밀집도 카운트
+    - Top 10 앵커 시설 스캔
     """
-    default_details = pd.DataFrame(columns=['place_name', 'distance', 'phone'])
+    # 초기값 선언 (Zero-Failure)
     result = {
-        "subway_station": "정보 없음",
-        "exit_info": "",
-        "subway_dist": 0,
-        "walk_time": 0,
-        "bus_stop_count": 0,
-        "details": default_details
+        "subway": {
+            "station": "정보 없음",
+            "exit": "",
+            "dist": 0,
+            "walk": 0
+        },
+        "counts": {},
+        "anchors": pd.DataFrame(columns=["브랜드", "지점명", "거리(m)", "도보(분)"])
     }
 
     try:
         if not lat or not lng:
             return result
 
-        # 1. 지하철역 검색
-        sub_params = {"category_group_code": "SW8", "x": lng, "y": lat, "radius": 500, "sort": "distance"}
+        # ---------------------------------------------------------
+        # [Step 1] 지하철역 분석 (Integrated Logic)
+        # ---------------------------------------------------------
+        sub_params = {"category_group_code": "SW8", "x": lng, "y": lat, "radius": 700, "sort": "distance"}
         subways_raw = _call_kakao_local("category", sub_params)
         
-        # [Step 1-1] 지하철 순도 필터링: 카테고리에 '지하철,전철' 필수
+        # 순도 필터링: '지하철,전철' 카테고리 필수
         subways = [s for s in subways_raw if '지하철,전철' in s.get('category_name', '')]
 
         if subways:
             nearest = subways[0]
             raw_name = nearest.get('place_name', '')
             
-            # [Step 1-2] 이름 정제: 괄호와 그 안의 내용(식당명 등) 완전 제거
+            # 이름 정제 (괄호 제거)
             clean_name = re.sub(r'\(.*\)', '', raw_name).strip()
-            station_base_name = clean_name.split()[0] 
+            station_base_name = clean_name.split()[0]
             
-            # 출구 정밀 검색
-            exit_params = {"query": f"{station_base_name} 출구", "x": lng, "y": lat, "radius": 500, "sort": "distance"}
+            # 출구 검색
+            exit_params = {"query": f"{station_base_name} 출구", "x": lng, "y": lat, "radius": 700, "sort": "distance"}
             exits = _call_kakao_local("keyword", exit_params)
             
             target_obj = nearest
@@ -137,53 +142,23 @@ def get_transport_analysis(lat, lng):
                 exit_name = _extract_exit_number(target_obj.get('place_name', ''))
                 if not exit_name: exit_name = target_obj.get('place_name', '')
             
+            # 도보 계산
             dist, time = _calculate_walking_data(lng, lat, target_obj.get('x'), target_obj.get('y'))
             
-            result["subway_station"] = station_base_name
-            result["exit_info"] = exit_name
-            result["subway_dist"] = dist
-            result["walk_time"] = time
-            
-            df = pd.DataFrame(subways)
-            cols = [c for c in ['place_name', 'distance', 'phone'] if c in df.columns]
-            result["details"] = df[cols].head(5)
+            result["subway"] = {
+                "station": station_base_name,
+                "exit": exit_name,
+                "dist": dist,
+                "walk": time
+            }
 
-        # 2. 버스 정류장 전수 조사 (멀티 키워드 & size=45 & 카테고리 필터)
-        bus_keywords = ["정류장", "버스정류장", "정류소"]
-        unique_bus_stops = {}
-
-        for kw in bus_keywords:
-            # size를 45로 늘려 누락 방지
-            bus_params = {"query": kw, "x": lng, "y": lat, "radius": 500, "size": 45}
-            found_buses = _call_kakao_local("keyword", bus_params)
-            
-            for b in found_buses:
-                p_id = b.get('id')
-                cat_name = b.get('category_name', '')
-                # [Step 1-3] 버스 카테고리 정밀 필터 (교통,운송 > 버스)
-                if p_id and ('교통,운송 > 버스' in cat_name or '정류장' in cat_name):
-                    unique_bus_stops[p_id] = b
-        
-        result["bus_stop_count"] = len(unique_bus_stops)
-
-    except Exception as e:
-        print(f"[Transport Analysis Error] {e}")
-        return result
-
-    return result
-
-def get_commercial_analysis(lat, lng):
-    """
-    [섹션 2] 상권 인프라 분석 (v24.26.4 앵커 확장)
-    - 7대 핵심 앵커(스타벅스, 맥도날드, 올리브영, 다이소, 버거킹, 써브웨이, 메가커피)
-    """
-    default_counts = {k: 0 for k in ["음식점", "카페", "편의점", "은행", "병원"]}
-    default_anchors = pd.DataFrame(columns=["브랜드", "지점명", "거리(m)", "도보(분)"])
-    result = {"counts": default_counts, "anchors": default_anchors}
-
-    try:
-        if not lat or not lng: return result
-        categories = {"음식점": "FD6", "카페": "CE7", "편의점": "CS2", "은행": "BK9", "병원": "HP8"}
+        # ---------------------------------------------------------
+        # [Step 2] 10대 업종 밀집도 (10 Categories)
+        # ---------------------------------------------------------
+        categories = {
+            "음식점": "FD6", "카페": "CE7", "편의점": "CS2", "은행": "BK9", "병원": "HP8",
+            "약국": "PM9", "대형마트": "MT1", "학원": "AC5", "주차장": "PK6", "지하철역": "SW8"
+        }
         
         current_counts = {}
         for name, code in categories.items():
@@ -192,13 +167,19 @@ def get_commercial_analysis(lat, lng):
             current_counts[name] = len(data)
         result["counts"] = current_counts
 
-        # [Step 2] 앵커 시설 7종으로 대폭 확장
+        # ---------------------------------------------------------
+        # [Step 3] Top 10 앵커 시설 스캔
+        # ---------------------------------------------------------
         anchors_list = []
-        target_anchors = ["스타벅스", "맥도날드", "올리브영", "다이소", "버거킹", "써브웨이", "메가커피"]
+        target_anchors = [
+            "스타벅스", "맥도날드", "올리브영", "다이소", "버거킹", 
+            "써브웨이", "메가커피", "파리바게뜨", "컴포즈커피", "배스킨라빈스"
+        ]
         
         for anchor in target_anchors:
             params = {"query": anchor, "x": lng, "y": lat, "radius": 1000, "sort": "distance"}
             data = _call_kakao_local("keyword", params)
+            
             if data:
                 nearest = data[0]
                 dist = int(nearest.get('distance', 0))
@@ -208,23 +189,29 @@ def get_commercial_analysis(lat, lng):
                 })
             else:
                 anchors_list.append({"브랜드": anchor, "지점명": "없음", "거리(m)": "-", "도보(분)": "-"})
+        
         result["anchors"] = pd.DataFrame(anchors_list)
+
     except Exception as e:
-        print(f"[Commercial Analysis Error] {e}")
+        print(f"[Commercial Integrated Error] {e}")
+        return result
+
     return result
 
 def get_demand_analysis(lat, lng):
     """
-    [섹션 3] 업무/생활 수요 분석
+    [함수 2] 수요 분석 (기존 유지 + DataFrame 보장)
     """
     columns = ["구분", "시설명", "거리(m)"]
     default_df = pd.DataFrame(columns=columns)
 
     try:
         if not lat or not lng: return default_df
+        
         demand_list = []
         seen_places = set()
 
+        # 1. 오피스
         office_kws = ["지식산업센터", "오피스", "빌딩"]
         for kw in office_kws:
             params = {"query": kw, "x": lng, "y": lat, "radius": 500}
@@ -235,6 +222,7 @@ def get_demand_analysis(lat, lng):
                     demand_list.append({"구분": "업무시설", "시설명": p.get('place_name', ''), "거리(m)": int(p.get('distance', 0))})
                     seen_places.add(p_id)
 
+        # 2. 교육
         edu_codes = {"학교": "SC4", "학원": "AC5"}
         for name, code in edu_codes.items():
             params = {"category_group_code": code, "x": lng, "y": lat, "radius": 500}
@@ -245,6 +233,7 @@ def get_demand_analysis(lat, lng):
                     demand_list.append({"구분": f"교육({name})", "시설명": p.get('place_name', ''), "거리(m)": int(p.get('distance', 0))})
                     seen_places.add(p_id)
 
+        # 3. 행정
         admin_kws = ["주민센터", "우체국", "구청", "경찰서"]
         for kw in admin_kws:
             params = {"query": kw, "x": lng, "y": lat, "radius": 800}
@@ -259,7 +248,9 @@ def get_demand_analysis(lat, lng):
             df = pd.DataFrame(demand_list)
             df = df.sort_values(by="거리(m)").head(15).reset_index(drop=True)
             return df
+        
         return default_df
+
     except Exception as e:
         print(f"[Demand Analysis Error] {e}")
         return default_df
