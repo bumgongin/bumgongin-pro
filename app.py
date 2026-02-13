@@ -1,19 +1,20 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.24.0)
-# Final Integration: API Compliance & Mobile UX Polish
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.24.3)
+# Feature: UI Restoration, Filter Logic Fix, Infra Engine Integration
 
 import streamlit as st
 import pandas as pd
 import time
 import math
-import core_engine as engine  # [Core Engine v24.23.5]
+import core_engine as engine  # [Core Engine v24.24.3]
 import map_service as map_api # [Map Service v24.23.7]
 import styles                 # [Style Module v24.23.7]
+import infra_engine           # [Infra Engine v24.24.2]
 
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
-st.set_page_config(page_title="범공인 Pro (v24.24.0)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="범공인 Pro (v24.24.3)", layout="wide", initial_sidebar_state="expanded")
 styles.apply_custom_css()
 
 # 상태 변수 초기화
@@ -127,7 +128,7 @@ st.title("🏙️ 범공인 매물장 (Pro)")
 @st.fragment
 def main_list_view():
     # --------------------------------------------------------------------------
-    # [DETAIL VIEW] Edit Mode with Map
+    # [DETAIL VIEW] Edit Mode with Map & Infra
     # --------------------------------------------------------------------------
     if st.session_state.selected_item is not None:
         item = st.session_state.selected_item
@@ -142,7 +143,7 @@ def main_list_view():
             c_info, c_zoom = st.columns([3, 1])
             c_info.caption(f"📍 {addr_full}")
             
-            # Zoom Buttons (API Fix: kind -> type)
+            # Zoom Buttons
             z_minus, z_plus = c_zoom.columns(2)
             if z_minus.button("－", key="zoom_out", use_container_width=True, type="secondary"):
                 if st.session_state.zoom_level > 10: st.session_state.zoom_level -= 1
@@ -189,7 +190,7 @@ def main_list_view():
             new_desc = st.text_area("특징", value=item.get('내용', ''), height=100)
             new_memo = st.text_area("비고", value=item.get('비고', ''), height=60)
 
-            # Save Button (API Fix: kind -> type)
+            # Save Button
             if st.form_submit_button("💾 수정 완료", type="primary", use_container_width=True):
                 updated_data = item.copy()
                 updated_data.update({'구분': new_cat, '건물명': new_name, '면적': new_area, '층': new_floor, '내용': new_desc, '비고': new_memo})
@@ -201,6 +202,30 @@ def main_list_view():
                     st.success(msg); time.sleep(1.5); del st.session_state.df_main
                     st.session_state.selected_item = None; st.cache_data.clear(); st.rerun()
                 else: st.error(msg)
+        
+        # [INFRA ANALYSIS]
+        st.markdown("---")
+        st.subheader("🏗️ 주변 인프라 분석 (반경 500m)")
+        if st.button("🚀 AI 상권 분석 실행", key="infra_btn", use_container_width=True):
+            if lat and lng:
+                with st.spinner("네이버 빅데이터 연동 중..."):
+                    infra_results = infra_engine.analyze_500m_infrastructure(lat, lng)
+                    summary_df = infra_engine.get_infra_summary_df(infra_results)
+                
+                st.success("분석 완료!")
+                st.dataframe(summary_df, hide_index=True, use_container_width=True, 
+                             column_config={"발견 수 (500m 내)": st.column_config.ProgressColumn("밀집도", format="%d개", min_value=0, max_value=15)})
+                
+                tabs = st.tabs(["🚇 교통", "🏫 교육", "🏪 편의/상업"])
+                with tabs[0]: st.write(pd.DataFrame(infra_results.get("지하철", [])))
+                with tabs[1]: st.write(pd.DataFrame(infra_results.get("학교", [])))
+                with tabs[2]: 
+                    c1, c2 = st.columns(2)
+                    with c1: st.write(pd.DataFrame(infra_results.get("편의점", [])))
+                    with c2: st.write(pd.DataFrame(infra_results.get("카페", [])))
+            else:
+                st.error("좌표 데이터가 없어 분석할 수 없습니다.")
+
         return
 
     # --------------------------------------------------------------------------
@@ -218,15 +243,20 @@ def main_list_view():
         df_filtered = df_filtered[mask]
     
     if is_sale_mode:
-        if '매매가' in df_filtered.columns: df_filtered = df_filtered[(df_filtered['매매가'] >= st.session_state.min_price) & (df_filtered['매매가'] <= st.session_state.max_price)]
-        if '대지면적' in df_filtered.columns: df_filtered = df_filtered[(df_filtered['대지면적'] >= st.session_state.min_land) & (df_filtered['대지면적'] <= st.session_state.max_land)]
+        if '매매가' in df_filtered.columns and not df_filtered.empty: df_filtered = df_filtered[(df_filtered['매매가'] >= st.session_state.min_price) & (df_filtered['매매가'] <= st.session_state.max_price)]
+        if '대지면적' in df_filtered.columns and not df_filtered.empty: df_filtered = df_filtered[(df_filtered['대지면적'] >= st.session_state.min_land) & (df_filtered['대지면적'] <= st.session_state.max_land)]
     else:
-        if '보증금' in df_filtered.columns: df_filtered = df_filtered[(df_filtered['보증금'] >= st.session_state.min_dep) & (df_filtered['보증금'] <= st.session_state.max_dep)]
-        if '월차임' in df_filtered.columns: df_filtered = df_filtered[(df_filtered['월차임'] >= st.session_state.min_rent) & (df_filtered['월차임'] <= st.session_state.max_rent)]
-        if '권리금' in df_filtered.columns and st.session_state.is_no_kwon: df_filtered = df_filtered[df_filtered['권리금'] == 0]
+        if '보증금' in df_filtered.columns and not df_filtered.empty: df_filtered = df_filtered[(df_filtered['보증금'] >= st.session_state.min_dep) & (df_filtered['보증금'] <= st.session_state.max_dep)]
+        if '월차임' in df_filtered.columns and not df_filtered.empty: df_filtered = df_filtered[(df_filtered['월차임'] >= st.session_state.min_rent) & (df_filtered['월차임'] <= st.session_state.max_rent)]
+        # [권리금 필터 로직 교정]
+        if '권리금' in df_filtered.columns and not df_filtered.empty:
+            if st.session_state.is_no_kwon:
+                df_filtered = df_filtered[df_filtered['권리금'] == 0]
+            else:
+                df_filtered = df_filtered[(df_filtered['권리금'] >= st.session_state.min_kwon) & (df_filtered['권리금'] <= st.session_state.max_kwon)]
     
-    if '면적' in df_filtered.columns: df_filtered = df_filtered[(df_filtered['면적'] >= st.session_state.min_area) & (df_filtered['면적'] <= st.session_state.max_area)]
-    if '층' in df_filtered.columns: df_filtered = df_filtered[(df_filtered['층'] >= st.session_state.min_fl) & (df_filtered['층'] <= st.session_state.max_fl)]
+    if '면적' in df_filtered.columns and not df_filtered.empty: df_filtered = df_filtered[(df_filtered['면적'] >= st.session_state.min_area) & (df_filtered['면적'] <= st.session_state.max_area)]
+    if '층' in df_filtered.columns and not df_filtered.empty: df_filtered = df_filtered[(df_filtered['층'] >= st.session_state.min_fl) & (df_filtered['층'] <= st.session_state.max_fl)]
 
     total_count = len(df_filtered)
     if total_count == 0: st.warning("🔍 검색 결과가 없습니다."); return
@@ -301,7 +331,6 @@ def main_list_view():
                 
                 # Mobile Optimized Detail Button (Wrapped for Full Width)
                 with c_btn.container():
-                    # styles.py의 .card-btn-container 타겟팅됨 (모바일에서 width: 100%)
                     if st.button("상세", key=f"btn_detail_{row['IronID']}", use_container_width=True):
                         st.session_state.selected_item = row; st.rerun()
         
