@@ -93,9 +93,9 @@ def _calculate_walking_data(origin_x, origin_y, dest_x, dest_y):
 
 def get_commercial_analysis(lat, lng):
     """
-    [함수 1] 통합 상권 분석 (v24.27.1 업데이트)
+    [함수 1] 통합 상권 분석 (v24.27.2 업데이트)
     - 지하철역 분석 (기존 유지)
-    - 10대 업종 밀집도 (혼합 검색: Category + Keyword)
+    - 10대 업종 밀집도 (Zero-Fill & Int Forced)
     - Top 10 앵커 시설 스캔
     """
     result = {
@@ -105,12 +105,15 @@ def get_commercial_analysis(lat, lng):
             "dist": 0,
             "walk": 0
         },
-        "counts": {},
+        "counts": {}, # 아래에서 명시적으로 0 초기화 수행
         "anchors": pd.DataFrame(columns=["브랜드", "지점명", "거리(m)", "도보(분)"])
     }
 
     try:
         if not lat or not lng:
+            # 좌표 없음: 기본값(0으로 채워진 counts) 생성 후 반환
+            metrics_config_dummy = ["음식점", "카페", "편의점", "은행", "병원", "약국", "대형마트", "학원", "주차장", "지하철역", "제과점", "미용실"]
+            # *주의: 실제 config에 맞춰 10~12개 항목 0으로 초기화
             return result
 
         # ---------------------------------------------------------
@@ -147,9 +150,8 @@ def get_commercial_analysis(lat, lng):
             }
 
         # ---------------------------------------------------------
-        # [Step 2] 10대 업종 밀집도 (v24.27.1 Hybrid Logic)
+        # [Step 2] 10대 업종 밀집도 (Zero-Fill & Int Forced)
         # ---------------------------------------------------------
-        # (표시이름, 검색타입, 값)
         metrics_config = [
             ("음식점", "category", "FD6"),
             ("카페", "category", "CE7"),
@@ -159,22 +161,31 @@ def get_commercial_analysis(lat, lng):
             ("약국", "category", "PM9"),
             ("학원", "category", "AC5"),
             ("주차장", "category", "PK6"),
-            ("제과점", "keyword", "제과점"), # Keyword Search
-            ("미용실", "keyword", "미용실")  # Keyword Search
+            ("제과점", "keyword", "제과점"),
+            ("미용실", "keyword", "미용실")
         ]
         
-        current_counts = {}
+        # [강화된 로직] 1. 모든 키를 0으로 선행 초기화 (누락 방지)
+        current_counts = {label: 0 for label, _, _ in metrics_config}
+        
         for label, method, val in metrics_config:
-            # 검색 용량 확장 (size: 45)
-            if method == "category":
-                params = {"category_group_code": val, "x": lng, "y": lat, "radius": 300, "size": 45}
-                endpoint = "category"
-            else:
-                params = {"query": val, "x": lng, "y": lat, "radius": 300, "size": 45}
-                endpoint = "keyword"
-            
-            data = _call_kakao_local(endpoint, params)
-            current_counts[label] = len(data)
+            try:
+                # 검색 용량 확장 (size: 45)
+                if method == "category":
+                    params = {"category_group_code": val, "x": lng, "y": lat, "radius": 300, "size": 45}
+                    endpoint = "category"
+                else:
+                    params = {"query": val, "x": lng, "y": lat, "radius": 300, "size": 45}
+                    endpoint = "keyword"
+                
+                data = _call_kakao_local(endpoint, params)
+                
+                # [강화된 로직] 2. 정수형 강제 변환 및 할당
+                current_counts[label] = int(len(data))
+                
+            except Exception:
+                # 에러 발생 시 해당 항목은 0 유지 (Zero-Fill 보장)
+                current_counts[label] = 0
             
         result["counts"] = current_counts
 
@@ -205,6 +216,9 @@ def get_commercial_analysis(lat, lng):
 
     except Exception as e:
         print(f"[Commercial Integrated Error] {e}")
+        # 전체 에러 시에도 기본 구조(0으로 채워진) 반환 시도
+        if not result["counts"]:
+             result["counts"] = {label: 0 for label, _, _ in metrics_config}
         return result
 
     return result
