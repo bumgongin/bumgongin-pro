@@ -1,19 +1,19 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.22.5)
-# Feature: Contextual Buttons, Checkbox Sync, Text Polish
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.22.6)
+# Fix: Visual Sync, Real-time Selection, Unique IDs
 
 import streamlit as st
 import pandas as pd
 import time
 import math
 import core_engine as engine  # [Core Engine v24.21.2]
-import styles                 # [Style Module v24.22.5]
+import styles                 # [Style Module v24.22.6]
 
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
 st.set_page_config(
-    page_title="범공인 Pro (v24.22.5)",
+    page_title="범공인 Pro (v24.22.6)",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -52,6 +52,9 @@ with st.sidebar:
             st.session_state.editor_key_version += 1
             st.session_state.page_num = 1
             if 'df_main' in st.session_state: del st.session_state.df_main
+            # 체크박스 상태 초기화
+            keys_to_clear = [k for k in st.session_state.keys() if k.startswith("chk_")]
+            for k in keys_to_clear: del st.session_state[k]
             st.cache_data.clear()
             st.rerun()
 
@@ -159,7 +162,7 @@ def main_list_view():
         mask = search_scope.fillna("").astype(str).apply(lambda x: ' '.join(x), axis=1).str.contains(search_val, case=False)
         df_filtered = df_filtered[mask]
 
-    # Numeric Filters (Condensed)
+    # Numeric Filters
     if is_sale_mode:
         if '매매가' in df_filtered.columns: df_filtered = df_filtered[(df_filtered['매매가'] >= st.session_state.min_price) & (df_filtered['매매가'] <= st.session_state.max_price)]
         if '대지면적' in df_filtered.columns: df_filtered = df_filtered[(df_filtered['대지면적'] >= st.session_state.min_land) & (df_filtered['대지면적'] <= st.session_state.max_land)]
@@ -171,7 +174,7 @@ def main_list_view():
     if '면적' in df_filtered.columns: df_filtered = df_filtered[(df_filtered['면적'] >= st.session_state.min_area) & (df_filtered['면적'] <= st.session_state.max_area)]
     if '층' in df_filtered.columns: df_filtered = df_filtered[(df_filtered['층'] >= st.session_state.min_fl) & (df_filtered['층'] <= st.session_state.max_fl)]
 
-    # Info & Pagination Setup
+    # Info & Pagination
     total_count = len(df_filtered)
     if total_count == 0: st.warning("🔍 검색 결과가 없습니다."); return
 
@@ -189,23 +192,26 @@ def main_list_view():
     # [VIEW MODE A] CARD VIEW
     # ==========================================================================
     if st.session_state.view_mode == '🗂️ 카드 모드':
-        # Mass Action (Synced & Page Only)
+        # Mass Action (Synced)
         c_act1, c_act2 = st.columns(2)
         if c_act1.button("✅ 전체 선택", key="sel_all_card"):
-            # 현재 페이지(df_page)의 ID만 선택 처리
             target_ids = df_page['IronID'].tolist()
             st.session_state.df_main.loc[st.session_state.df_main['IronID'].isin(target_ids), '선택'] = True
+            # 체크박스 상태 강제 동기화
+            for iid in target_ids: st.session_state[f"chk_{iid}"] = True
             st.rerun()
         if c_act2.button("⬜ 전체 해제", key="desel_all_card"):
             st.session_state.df_main['선택'] = False
+            # 체크박스 상태 강제 해제
+            for iid in st.session_state.df_main['IronID']:
+                if f"chk_{iid}" in st.session_state: st.session_state[f"chk_{iid}"] = False
             st.rerun()
 
         with st.container(height=500):
             for idx, row in df_page.iterrows():
-                # [Data Processing]
+                # Data Processing
                 raw_ho = str(row.get('호실', '')).replace('호', '').strip()
                 ho_str = f"{raw_ho}호" if raw_ho else ""
-                
                 gubun = row.get('구분', '매물')
                 
                 if is_sale_mode:
@@ -225,17 +231,24 @@ def main_list_view():
                     if row.get('권리금', 0) > 0: spec += f" / 권:{int(row['권리금']):,}"
                     if row.get('현업종', ''): spec += f" / {row['현업종']}"
                 
-                # [Card + Checkbox Layout]
-                c_chk, c_card = st.columns([1, 15]) 
+                # Card + Checkbox
+                c_chk, c_card = st.columns([1, 12]) 
                 
-                # Checkbox Logic (Sync with Session)
+                # Checkbox (Sync)
                 is_checked = st.session_state.df_main.loc[st.session_state.df_main['IronID'] == row['IronID'], '선택'].values[0]
-                # 체크박스 변경 시 즉시 리런
-                if c_chk.checkbox("", value=bool(is_checked), key=f"chk_{row['IronID']}") != is_checked:
-                    st.session_state.df_main.loc[st.session_state.df_main['IronID'] == row['IronID'], '선택'] = not is_checked
-                    st.rerun()
+                chk_key = f"chk_{row['IronID']}"
+                if chk_key not in st.session_state: st.session_state[chk_key] = bool(is_checked)
+                
+                if c_chk.checkbox("", key=chk_key):
+                    if not is_checked:
+                        st.session_state.df_main.loc[st.session_state.df_main['IronID'] == row['IronID'], '선택'] = True
+                        st.rerun()
+                else:
+                    if is_checked:
+                        st.session_state.df_main.loc[st.session_state.df_main['IronID'] == row['IronID'], '선택'] = False
+                        st.rerun()
 
-                # Card Logic
+                # Card HTML
                 card_html = f"""
                 <div class="listing-card">
                     <div class="card-row-1">
@@ -266,7 +279,7 @@ def main_list_view():
     else:
         c_act1, c_act2 = st.columns(2)
         if c_act1.button("✅ 전체 선택", key="sel_all_list"):
-            target_ids = df_page['IronID'].tolist() # 현재 페이지 대상
+            target_ids = df_page['IronID'].tolist()
             st.session_state.df_main.loc[st.session_state.df_main['IronID'].isin(target_ids), '선택'] = True
             st.session_state.editor_key_version += 1
             st.rerun()
@@ -303,7 +316,7 @@ def main_list_view():
             if st.session_state.page_num < total_pages: st.session_state.page_num += 1; st.rerun()
 
         st.divider()
-        if st.button("💾 변경사항 저장 (서버 반영)", type="primary", use_container_width=True):
+        if st.button("💾 변경사항 저장 (서버 반영)", type="primary", use_container_width=True, key="btn_save"):
             with st.status("💾 저장 중...", expanded=True) as status:
                 success, msg, debug = engine.save_updates_to_sheet(edited_df, st.session_state.df_main, st.session_state.current_sheet)
                 if success:
@@ -312,53 +325,63 @@ def main_list_view():
                     st.cache_data.clear(); st.rerun()
                 else: st.error(msg)
     
-    # --- UNIVERSAL ACTION BAR (Contextual) ---
+    # --- UNIVERSAL ACTION BAR ---
     st.divider()
-    selected_rows = st.session_state.df_main[st.session_state.df_main['선택'] == True]
+    
+    # [Dual State Monitor] 리스트 모드: edited_df 감시 / 카드 모드: session_state 감시
+    if st.session_state.view_mode == '📋 리스트 모드':
+        # 안전한 참조: edited_df가 정의되지 않았을 경우(초기 로드 등) 대비
+        try: selected_rows = edited_df[edited_df['선택'] == True]
+        except: selected_rows = pd.DataFrame()
+    else:
+        selected_rows = st.session_state.df_main[st.session_state.df_main['선택'] == True]
+        
     if len(selected_rows) > 0:
         st.success(f"✅ {len(selected_rows)}건 선택됨")
         cur_tab = st.session_state.current_sheet
         is_end = "(종료)" in cur_tab
         base_tab = cur_tab.replace("(종료)", "").replace("브리핑", "").strip()
+        base_label = "매매" if "매매" in cur_tab else "임대" # 문맥 라벨
         
         ac1, ac2, ac3 = st.columns(3)
+        # [Contextual Buttons]
         with ac1:
-            if "브리핑" in cur_tab: st.button("🚫", disabled=True, use_container_width=True)
+            if "브리핑" in cur_tab: st.button("🚫", disabled=True, use_container_width=True, key="btn_move_disabled")
             elif is_end:
-                if st.button(f"♻️ 복구({base_tab})", use_container_width=True): st.session_state.action_status = 'restore_confirm'
+                if st.button(f"♻️ 복구({base_label})", use_container_width=True, key="btn_restore"): st.session_state.action_status = 'restore_confirm'
             else:
-                if st.button(f"🚀 {base_tab}(종료)", use_container_width=True): st.session_state.action_status = 'move_confirm'
+                if st.button(f"🚀 {base_label}(종료)", use_container_width=True, key="btn_move"): st.session_state.action_status = 'move_confirm'
         with ac2:
             if "브리핑" not in cur_tab:
-                if st.button(f"📋 {base_tab}브리핑", use_container_width=True): st.session_state.action_status = 'copy_confirm'
-            else: st.button("🚫", disabled=True, use_container_width=True)
+                if st.button(f"📋 {base_label}브리핑", use_container_width=True, key="btn_copy"): st.session_state.action_status = 'copy_confirm'
+            else: st.button("🚫", disabled=True, use_container_width=True, key="btn_copy_disabled")
         with ac3:
-            if st.button("🗑️ 삭제", type="primary", use_container_width=True): st.session_state.action_status = 'delete_confirm'
+            if st.button("🗑️ 삭제", type="primary", use_container_width=True, key="btn_del"): st.session_state.action_status = 'delete_confirm'
 
         if st.session_state.action_status == 'move_confirm':
             target = f"{base_tab}(종료)"
             with st.status(f"🚀 이동 중...", expanded=True):
-                if st.button("확인"):
+                if st.button("확인", key="conf_move"):
                     _, msg, _ = engine.execute_transaction("move", selected_rows, cur_tab, target)
                     st.success(msg); time.sleep(1); del st.session_state.df_main; engine.safe_reset()
 
         elif st.session_state.action_status == 'restore_confirm':
             with st.status(f"♻️ 복구 중...", expanded=True):
-                if st.button("확인"):
+                if st.button("확인", key="conf_restore"):
                     _, msg, _ = engine.execute_transaction("restore", selected_rows, cur_tab, base_tab)
                     st.success(msg); time.sleep(1); del st.session_state.df_main; engine.safe_reset()
 
         elif st.session_state.action_status == 'copy_confirm':
             target = f"{base_tab}브리핑"
             with st.status(f"📋 복사 중...", expanded=True):
-                if st.button("확인"):
+                if st.button("확인", key="conf_copy"):
                     _, msg, _ = engine.execute_transaction("copy", selected_rows, cur_tab, target)
                     st.success(msg); time.sleep(1); st.session_state.action_status = None
 
         elif st.session_state.action_status == 'delete_confirm':
             with st.status(f"🗑️ 삭제 중...", expanded=True):
                 st.error("복구 불가"); 
-                if st.button("확인"):
+                if st.button("확인", key="conf_del"):
                     _, msg, _ = engine.execute_transaction("delete", selected_rows, cur_tab)
                     st.success(msg); time.sleep(1); del st.session_state.df_main; engine.safe_reset()
 
