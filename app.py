@@ -1,18 +1,18 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.21.11)
-# Final Fix: 450px Safe Height & Buffer Zone
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.21.12)
+# Integration: Anti-Scroll Chaining & Safe Layout
 
 import streamlit as st
 import pandas as pd
 import time
 import core_engine as engine  # [Core Engine v24.21.2]
-import styles                 # [Style Module v24.21.11]
+import styles                 # [Style Module v24.21.12]
 
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
 st.set_page_config(
-    page_title="범공인 Pro (v24.21.11)",
+    page_title="범공인 Pro (v24.21.12)",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -209,7 +209,7 @@ def main_list_view():
         mask = search_scope.fillna("").astype(str).apply(lambda x: ' '.join(x), axis=1).str.contains(search_val, case=False)
         df_filtered = df_filtered[mask]
 
-    # Numeric (Engine 변수 활용)
+    # Numeric
     if is_sale_mode:
         if '매매가' in df_filtered.columns:
             df_filtered = df_filtered[(df_filtered['매매가'] >= st.session_state.min_price) & (df_filtered['매매가'] <= st.session_state.max_price)]
@@ -246,7 +246,7 @@ def main_list_view():
         with st.status("💾 서버에 저장 중...", expanded=True) as status:
             st.warning("⚠️ 리스트 하단의 저장 버튼을 이용해주세요.")
 
-    # --- DATA EDITOR (450px Safe Height) ---
+    # --- DATA EDITOR (SCROLL JAIL) ---
     if len(df_filtered) == 0:
         st.warning("🔍 검색 결과가 없습니다.")
         return
@@ -272,7 +272,7 @@ def main_list_view():
 
     editor_key = f"editor_{st.session_state.current_sheet}_{st.session_state.editor_key_version}"
     
-    # [SAFE HEIGHT] 450px 고정 & 행 추가/삭제 방지 (num_rows="fixed")
+    # [DIRECT HEIGHT CONTROL] 450px 안전 높이
     edited_df = st.data_editor(
         df_filtered,
         disabled=disabled_cols,
