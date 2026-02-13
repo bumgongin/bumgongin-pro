@@ -1,6 +1,6 @@
 # styles.py
-# 범공인 Pro v24 Enterprise - Style Definition Module (v24.21.9)
-# Final Fix: Touch Action Control & Overflow Visibility
+# 범공인 Pro v24 Enterprise - Style Definition Module (v24.21.10)
+# Final Fix: Browser Scroll Override & Drag Block
 
 import streamlit as st
 
@@ -8,41 +8,35 @@ def apply_custom_css():
     st.markdown("""
         <style>
         /* --------------------------------------------------------------------- */
-        /* [CORE] Mobile Scroll Jail System (Hyper-Lock)                         */
+        /* [CORE] Scroll Sovereignty (브라우저 스크롤 주권 강탈)                 */
         /* --------------------------------------------------------------------- */
         
-        /* 1. 페이지 전체 오버스크롤(당겨서 새로고침) 차단 */
+        /* 1. 페이지 전체 스크롤 원천 차단 (위아래 들썩임 방지) */
         html, body {
-            overscroll-behavior-y: contain !important;
+            overflow: hidden !important;
+            height: 100% !important;
+            overscroll-behavior-y: none !important;
         }
         
-        /* 2. 메인 컨테이너 스크롤 제어 */
+        /* 2. 메인 뷰 컨테이너도 고정 */
         .stAppViewContainer {
-            overscroll-behavior-y: contain !important;
+            overflow: hidden !important;
+            height: 100% !important;
         }
 
-        /* 3. 데이터 에디터 터치 간섭 제거 (핵심) */
+        /* 3. 데이터 에디터 컨테이너 (유일한 스크롤 허용 구역) */
         div[data-testid="stDataEditor"] {
             border: 1px solid #e0e0e0;
             border-radius: 8px;
             background-color: #ffffff;
-            /* 터치 액션을 Y축 스크롤로 제한 (좌우 스와이프/확대 차단) */
-            touch-action: pan-y !important; 
+            touch-action: pan-y !important; /* 수직 스크롤만 허용 */
+            -webkit-user-drag: none !important; /* 행 드래그 방지 */
         }
 
-        /* 4. 에디터 내부 요소 상호작용 제한 */
-        div[data-testid="stDataEditor"] * {
-            /* 텍스트 선택 방지 (드래그 오인식 방지) */
-            user-select: none !important;
-            -webkit-user-select: none !important;
-            /* 내부 팝업(달력 등) 잘림 방지 */
-            overflow: visible !important; 
-        }
-
-        /* 5. 리스트 내부 스크롤바 커스터마이징 */
+        /* 4. 리스트 내부 스크롤바 제어 */
         div[data-testid="stDataEditor"] > div {
-            /* overflow-y는 app.py의 height 설정에 의해 자동 제어됨 */
-            -webkit-overflow-scrolling: touch !important; /* iOS 필수 */
+            overflow-y: auto !important; /* 여기서만 스크롤 가능 */
+            -webkit-overflow-scrolling: touch !important; /* iOS 관성 스크롤 */
             scrollbar-width: thin;
             scrollbar-color: #888 #f1f1f1;
         }
@@ -54,12 +48,19 @@ def apply_custom_css():
         ::-webkit-scrollbar-thumb:hover { background: #888; }
 
         /* --------------------------------------------------------------------- */
-        /* [TOUCH OPTIMIZATION] Fat-Finger Friendly                              */
+        /* [TOUCH OPTIMIZATION] Interaction Lock                                 */
         /* --------------------------------------------------------------------- */
         
-        /* 버튼: 높이 48px 이상 */
+        /* 텍스트 선택 및 드래그 방지 (리스트 내부) */
+        div[data-testid="stDataEditor"] * {
+            user-select: none !important;
+            -webkit-user-select: none !important;
+            /* overflow: visible 제거됨 (스크롤 로직 보호) */
+        }
+
+        /* 버튼 스타일 */
         .stButton button { 
-            min-height: 48px !important; 
+            min-height: 50px !important; 
             font-size: 15px !important; 
             font-weight: 600 !important; 
             width: 100%;
@@ -69,7 +70,7 @@ def apply_custom_css():
         }
         .stButton button:active { transform: scale(0.98); }
         
-        /* 입력창: 높이 48px 이상 */
+        /* 입력창 스타일 */
         input[type=number], input[type=text] { 
             min-height: 48px !important; 
             font-size: 16px !important; 
@@ -83,10 +84,14 @@ def apply_custom_css():
         }
 
         /* --------------------------------------------------------------------- */
-        /* [LAYOUT] Sidebar & Filter UI                                          */
+        /* [LAYOUT] Sidebar & UI Structure                                       */
         /* --------------------------------------------------------------------- */
         
-        /* 사이드바 여백 */
+        /* 사이드바는 별도 스크롤 허용 */
+        section[data-testid="stSidebar"] {
+            overflow-y: auto !important; 
+        }
+        
         section[data-testid="stSidebar"] .block-container {
             padding-top: 2rem;
             padding-bottom: 5rem;
@@ -97,7 +102,7 @@ def apply_custom_css():
             gap: 1rem;
         }
         
-        /* 검색 라벨 스타일 (돋보기 버튼용) */
+        /* 검색 라벨 스타일 */
         .search-label {
             font-size: 1.2rem;
             cursor: pointer;
