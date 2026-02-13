@@ -1,6 +1,6 @@
 # styles.py
-# 범공인 Pro v24 Enterprise - Style Definition Module (v24.21.10)
-# Final Fix: Browser Scroll Override & Drag Block
+# 범공인 Pro v24 Enterprise - Style Definition Module (v24.21.11)
+# Final Fix: 100vh Viewport Locking & No-Bounce
 
 import streamlit as st
 
@@ -8,20 +8,30 @@ def apply_custom_css():
     st.markdown("""
         <style>
         /* --------------------------------------------------------------------- */
-        /* [CORE] Scroll Sovereignty (브라우저 스크롤 주권 강탈)                 */
+        /* [CORE] Viewport Locking System (100vh)                                */
         /* --------------------------------------------------------------------- */
         
-        /* 1. 페이지 전체 스크롤 원천 차단 (위아래 들썩임 방지) */
+        /* 1. 페이지 전체를 브라우저 창 높이에 강제 고정 */
         html, body {
+            height: 100vh !important;
             overflow: hidden !important;
-            height: 100% !important;
-            overscroll-behavior-y: none !important;
+            overscroll-behavior: none !important; /* 당겨서 새로고침 차단 */
+            margin: 0 !important;
+            padding: 0 !important;
         }
         
-        /* 2. 메인 뷰 컨테이너도 고정 */
+        /* 2. 메인 컨테이너도 100vh 고정 */
         .stAppViewContainer {
+            height: 100vh !important;
             overflow: hidden !important;
-            height: 100% !important;
+            touch-action: none; /* 메인 영역 터치 무시 */
+        }
+        
+        /* 메인 컨텐츠 영역 (패딩 조정으로 스크롤 공간 확보) */
+        .main .block-container {
+            padding-top: 1rem !important;
+            padding-bottom: 2rem !important;
+            max-width: 100% !important;
         }
 
         /* 3. 데이터 에디터 컨테이너 (유일한 스크롤 허용 구역) */
@@ -29,16 +39,15 @@ def apply_custom_css():
             border: 1px solid #e0e0e0;
             border-radius: 8px;
             background-color: #ffffff;
-            touch-action: pan-y !important; /* 수직 스크롤만 허용 */
-            -webkit-user-drag: none !important; /* 행 드래그 방지 */
+            touch-action: pan-y !important; /* 수직 스크롤 허용 */
+            -webkit-user-drag: none !important;
         }
 
         /* 4. 리스트 내부 스크롤바 제어 */
         div[data-testid="stDataEditor"] > div {
-            overflow-y: auto !important; /* 여기서만 스크롤 가능 */
-            -webkit-overflow-scrolling: touch !important; /* iOS 관성 스크롤 */
+            overflow-y: auto !important; 
+            -webkit-overflow-scrolling: touch !important; 
             scrollbar-width: thin;
-            scrollbar-color: #888 #f1f1f1;
         }
         
         /* 스크롤바 디자인 */
@@ -51,45 +60,41 @@ def apply_custom_css():
         /* [TOUCH OPTIMIZATION] Interaction Lock                                 */
         /* --------------------------------------------------------------------- */
         
-        /* 텍스트 선택 및 드래그 방지 (리스트 내부) */
         div[data-testid="stDataEditor"] * {
             user-select: none !important;
             -webkit-user-select: none !important;
-            /* overflow: visible 제거됨 (스크롤 로직 보호) */
         }
 
         /* 버튼 스타일 */
         .stButton button { 
-            min-height: 50px !important; 
+            min-height: 48px !important; 
             font-size: 15px !important; 
             font-weight: 600 !important; 
             width: 100%;
-            border-radius: 8px;
+            border-radius: 6px;
             box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-            transition: all 0.15s;
         }
         .stButton button:active { transform: scale(0.98); }
         
         /* 입력창 스타일 */
         input[type=number], input[type=text] { 
-            min-height: 48px !important; 
+            min-height: 45px !important; 
             font-size: 16px !important; 
-            padding-left: 12px !important;
         }
         
         /* 멀티셀렉트 터치 영역 */
         div[data-baseweb="select"] > div {
-            min-height: 48px !important;
-            align-items: center;
+            min-height: 45px !important;
         }
 
         /* --------------------------------------------------------------------- */
         /* [LAYOUT] Sidebar & UI Structure                                       */
         /* --------------------------------------------------------------------- */
         
-        /* 사이드바는 별도 스크롤 허용 */
+        /* 사이드바는 스크롤 허용 (필터가 많으므로) */
         section[data-testid="stSidebar"] {
             overflow-y: auto !important; 
+            touch-action: pan-y !important;
         }
         
         section[data-testid="stSidebar"] .block-container {
@@ -97,12 +102,10 @@ def apply_custom_css():
             padding-bottom: 5rem;
         }
         
-        /* 컨테이너 내부 간격 */
         [data-testid="stSidebar"] div[data-testid="stVerticalBlock"] {
             gap: 1rem;
         }
         
-        /* 검색 라벨 스타일 */
         .search-label {
             font-size: 1.2rem;
             cursor: pointer;
@@ -115,14 +118,13 @@ def apply_custom_css():
         
         div[data-testid="stHorizontalBlock"] button[kind="secondary"] { 
             border: 1px solid #d0d0d0; 
-            background-color: #f8f9fa;
-            color: #333;
+            background-color: #f8f9fa; 
+            color: #333; 
         }
-        
         div[data-testid="stHorizontalBlock"] button[kind="primary"] { 
             background-color: #ff4b4b; 
-            color: white;
-            border: none;
+            color: white; 
+            border: none; 
         }
 
         /* --------------------------------------------------------------------- */
@@ -130,9 +132,9 @@ def apply_custom_css():
         /* --------------------------------------------------------------------- */
         @media (max-width: 768px) { 
             .stDataEditor { font-size: 13px !important; }
-            h1 { font-size: 20px !important; margin-bottom: 0.5rem !important; }
+            h1 { font-size: 18px !important; margin: 0 !important; padding: 0 !important; }
             div[data-testid="column"] { margin-bottom: 5px; }
-            div.stSelectbox { margin-bottom: 8px; }
+            div.stSelectbox { margin-bottom: 5px; }
             
             div[data-testid="stToast"] {
                 bottom: 20px; left: 10px; right: 10px; width: auto;
