@@ -1,18 +1,18 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.21.13)
-# Final Fix: Filter Expansion & UI Cleanup
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.21.14)
+# Final Fix: 400px Safe Height & Filter Reset
 
 import streamlit as st
 import pandas as pd
 import time
 import core_engine as engine  # [Core Engine v24.21.2]
-import styles                 # [Style Module v24.21.13]
+import styles                 # [Style Module v24.21.14]
 
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
 st.set_page_config(
-    page_title="범공인 Pro (v24.21.13)",
+    page_title="범공인 Pro (v24.21.14)",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -134,7 +134,7 @@ with st.sidebar:
 
     st.write("")
 
-    # 4. 수치 필터 (범위 확장)
+    # 4. 수치 필터 (범위 확장 및 기본값 0.0)
     is_sale_mode = "매매" in st.session_state.current_sheet
     with st.expander("💰 상세 금액/면적 설정", expanded=False):
         # 상한선: 1,000억 / 100만평
@@ -173,10 +173,12 @@ with st.sidebar:
         cm1.number_input("최소", step=5.0, key='min_area', value=sess('min_area'))
         cm2.number_input("최대", step=5.0, key='max_area', value=sess('max_area'), max_value=MAX_AREA)
 
-        st.caption("🏢 층수")
+        st.caption("🏢 층수 (기본값 0.0)")
         cf1, cf2 = st.columns(2)
-        cf1.number_input("최저", step=1.0, key='min_fl', value=sess('min_fl'), min_value=-10.0)
-        cf2.number_input("최고", step=1.0, key='max_fl', value=sess('max_fl'), max_value=200.0)
+        # min_fl 기본값 0.0으로 조정 (마이너스 제외)
+        # 단, 지하층 검색이 필요할 수 있으므로 min_value는 -10.0 유지하되 value만 0.0으로
+        cf1.number_input("최저", step=1.0, key='min_fl', value=0.0, min_value=-10.0)
+        cf2.number_input("최고", step=1.0, key='max_fl', value=100.0, max_value=200.0)
 
         st.caption("☑️ 기타")
         st.checkbox("무권리만 보기", key='is_no_kwon')
@@ -213,7 +215,7 @@ def main_list_view():
         mask = search_scope.fillna("").astype(str).apply(lambda x: ' '.join(x), axis=1).str.contains(search_val, case=False)
         df_filtered = df_filtered[mask]
 
-    # Numeric
+    # Numeric (Engine 변수 활용)
     if is_sale_mode:
         if '매매가' in df_filtered.columns:
             df_filtered = df_filtered[(df_filtered['매매가'] >= st.session_state.min_price) & (df_filtered['매매가'] <= st.session_state.max_price)]
@@ -229,6 +231,7 @@ def main_list_view():
     
     if '면적' in df_filtered.columns:
         df_filtered = df_filtered[(df_filtered['면적'] >= st.session_state.min_area) & (df_filtered['면적'] <= st.session_state.max_area)]
+    # 층수 필터 (세션 변수 min_fl/max_fl 사용)
     if '층' in df_filtered.columns:
         df_filtered = df_filtered[(df_filtered['층'] >= st.session_state.min_fl) & (df_filtered['층'] <= st.session_state.max_fl)]
 
@@ -274,7 +277,7 @@ def main_list_view():
 
     editor_key = f"editor_{st.session_state.current_sheet}_{st.session_state.editor_key_version}"
     
-    # [DIRECT HEIGHT CONTROL] 450px 안전 높이
+    # [DIRECT HEIGHT CONTROL] 400px 안전 높이 (모바일 키보드 대응)
     edited_df = st.data_editor(
         df_filtered,
         disabled=disabled_cols,
@@ -282,7 +285,7 @@ def main_list_view():
         hide_index=True,
         column_config=col_cfg,
         key=editor_key,
-        height=450, 
+        height=400, 
         num_rows="fixed"
     )
 
