@@ -1,6 +1,6 @@
 # styles.py
-# 범공인 Pro v24 Enterprise - Style Definition Module (v24.21.11)
-# Final Fix: 100vh Viewport Locking & No-Bounce
+# 범공인 Pro v24 Enterprise - Style Definition Module (v24.21.12)
+# Final Fix: Position Fixed & Anti-Scroll Chaining
 
 import streamlit as st
 
@@ -8,45 +8,48 @@ def apply_custom_css():
     st.markdown("""
         <style>
         /* --------------------------------------------------------------------- */
-        /* [CORE] Viewport Locking System (100vh)                                */
+        /* [CORE] Viewport Locking & Anti-Chaining System                        */
         /* --------------------------------------------------------------------- */
         
-        /* 1. 페이지 전체를 브라우저 창 높이에 강제 고정 */
+        /* 1. 뷰포트 물리적 고정 (Position Fixed) */
         html, body {
-            height: 100vh !important;
+            position: fixed !important;
+            width: 100% !important;
+            height: 100% !important;
             overflow: hidden !important;
-            overscroll-behavior: none !important; /* 당겨서 새로고침 차단 */
+            overscroll-behavior: none !important;
             margin: 0 !important;
             padding: 0 !important;
         }
         
-        /* 2. 메인 컨테이너도 100vh 고정 */
+        /* 2. 메인 컨테이너 고정 */
         .stAppViewContainer {
-            height: 100vh !important;
+            height: 100% !important;
             overflow: hidden !important;
-            touch-action: none; /* 메인 영역 터치 무시 */
+            touch-action: none; 
         }
         
-        /* 메인 컨텐츠 영역 (패딩 조정으로 스크롤 공간 확보) */
+        /* 메인 컨텐츠 영역 패딩 */
         .main .block-container {
             padding-top: 1rem !important;
             padding-bottom: 2rem !important;
             max-width: 100% !important;
         }
 
-        /* 3. 데이터 에디터 컨테이너 (유일한 스크롤 허용 구역) */
+        /* 3. 데이터 에디터 컨테이너 */
         div[data-testid="stDataEditor"] {
             border: 1px solid #e0e0e0;
             border-radius: 8px;
             background-color: #ffffff;
-            touch-action: pan-y !important; /* 수직 스크롤 허용 */
+            touch-action: pan-y !important;
             -webkit-user-drag: none !important;
         }
 
-        /* 4. 리스트 내부 스크롤바 제어 */
+        /* 4. 리스트 내부 스크롤 체이닝 차단 (핵심) */
         div[data-testid="stDataEditor"] > div {
-            overflow-y: auto !important; 
-            -webkit-overflow-scrolling: touch !important; 
+            overflow-y: auto !important;
+            overscroll-behavior: contain !important; /* 부모로 스크롤 전파 차단 */
+            -webkit-overflow-scrolling: touch !important;
             scrollbar-width: thin;
         }
         
@@ -91,9 +94,10 @@ def apply_custom_css():
         /* [LAYOUT] Sidebar & UI Structure                                       */
         /* --------------------------------------------------------------------- */
         
-        /* 사이드바는 스크롤 허용 (필터가 많으므로) */
+        /* 사이드바는 스크롤 허용하되 체이닝 차단 */
         section[data-testid="stSidebar"] {
             overflow-y: auto !important; 
+            overscroll-behavior: contain !important;
             touch-action: pan-y !important;
         }
         
