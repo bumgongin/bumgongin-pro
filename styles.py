@@ -1,6 +1,6 @@
 # styles.py
-# 범공인 Pro v24 Enterprise - Style Definition Module (v24.22.4)
-# Feature: Responsive Card Layout & One-Line Control
+# 범공인 Pro v24 Enterprise - Style Definition Module (v24.22.5)
+# Feature: Mobile Row Flex Force & Compact UI
 
 import streamlit as st
 
@@ -46,7 +46,7 @@ def apply_custom_css():
             transition: background-color 0.1s;
             pointer-events: auto !important;
             display: flex;
-            flex-direction: column; /* 모바일: 수직 쌓기 */
+            flex-direction: column;
             gap: 4px;
         }
         
@@ -77,14 +77,14 @@ def apply_custom_css():
         /* --------------------------------------------------------------------- */
         @media (min-width: 1024px) {
             .listing-card {
-                flex-direction: row; /* PC: 가로 배치 */
+                flex-direction: row; 
                 justify-content: space-between;
                 align-items: center;
                 padding: 8px 16px;
             }
             .card-row-1, .card-row-2, .card-row-3 {
                 margin-bottom: 0;
-                flex: 1; /* 균등 분배 */
+                flex: 1; 
             }
             .card-row-1 { justify-content: flex-start; max-width: 20%; }
             .card-row-2 { justify-content: center; }
@@ -118,13 +118,14 @@ def apply_custom_css():
         /* --------------------------------------------------------------------- */
         .stButton button { 
             min-height: 48px !important; 
-            font-size: 15px !important; 
+            font-size: 14px !important; /* 모바일 대응 폰트 축소 */
             font-weight: 600 !important; 
             width: 100%;
             border-radius: 6px;
             box-shadow: 0 1px 2px rgba(0,0,0,0.1);
             pointer-events: auto !important; 
-            white-space: nowrap !important; /* 버튼 텍스트 줄바꿈 방지 */
+            white-space: nowrap !important;
+            padding: 0 5px !important; /* 좌우 패딩 축소 */
         }
         
         input[type=number], input[type=text] { 
@@ -138,26 +139,28 @@ def apply_custom_css():
             pointer-events: auto !important; 
         }
         
-        /* Pagination Alignment */
+        /* Pagination Compact Style */
         .pagination-text {
             display: flex;
             justify-content: center;
             align-items: center;
             height: 48px;
+            font-size: 0.9rem; /* 폰트 축소 */
             font-weight: 600;
             color: #555;
+            white-space: nowrap;
         }
         
-        /* Checkbox Alignment in Card View */
+        /* Checkbox Alignment */
         div[data-testid="stCheckbox"] {
             display: flex;
             justify-content: center;
             align-items: center;
             height: 100%;
-            padding-top: 15px; /* 카드 수직 중앙 정렬 보정 */
+            padding-top: 15px; 
         }
 
-        /* Sidebar & Others */
+        /* Sidebar */
         section[data-testid="stSidebar"] {
             overflow-y: auto !important; 
             pointer-events: auto !important; 
@@ -168,8 +171,8 @@ def apply_custom_css():
             padding-top: 2rem;
             padding-bottom: 5rem;
         }
-        [data-testid="stSidebar"] div[data-testid="stVerticalBlock"] { gap: 1rem; }
         
+        /* Action Buttons Color */
         div[data-testid="stHorizontalBlock"] button[kind="secondary"] { 
             border: 1px solid #d0d0d0; background-color: #f8f9fa; color: #333; 
         }
@@ -177,12 +180,28 @@ def apply_custom_css():
             background-color: #ff4b4b; color: white; border: none; 
         }
 
+        /* --------------------------------------------------------------------- */
+        /* [MOBILE FLEX FORCE] One-Line Layout                                   */
+        /* --------------------------------------------------------------------- */
         @media (max-width: 768px) { 
             .stDataEditor { font-size: 13px !important; }
             h1 { font-size: 18px !important; margin: 0 !important; padding: 0 !important; }
-            div[data-testid="column"] { margin-bottom: 5px; }
             div.stSelectbox { margin-bottom: 5px; }
             div[data-testid="stToast"] { bottom: 20px; left: 10px; right: 10px; width: auto; }
+            
+            /* 모바일에서 강제로 가로 배치 (줄바꿈 방지) */
+            div[data-testid="column"] { 
+                flex: 1 1 auto !important; 
+                min-width: 0 !important; /* 최소 너비 제한 해제 */
+                margin-bottom: 0px !important;
+            }
+            
+            /* 컬럼 컨테이너 강제 가로 정렬 */
+            div[data-testid="stHorizontalBlock"] {
+                flex-direction: row !important;
+                flex-wrap: nowrap !important;
+                gap: 5px !important; /* 버튼 간 간격 축소 */
+            }
         }
         </style>
     """, unsafe_allow_html=True)
