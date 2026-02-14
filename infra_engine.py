@@ -43,7 +43,7 @@ def _extract_exit_number(place_name):
 
 def calculate_haversine(lat1, lon1, lat2, lon2):
     """
-    [v24.28.1 New] 두 좌표(위도, 경도) 사이의 직선 거리(미터)를 계산합니다.
+    [v24.29.1 New] 두 좌표(위도, 경도) 사이의 직선 거리(미터)를 계산합니다.
     """
     try:
         R = 6371000  # 지구 반지름 (미터)
@@ -86,7 +86,7 @@ def get_commercial_analysis(lat, lng):
     try:
         if not lat or not lng: return result
 
-        # [Step 1] 지하철역 분석 (Haversine Logic)
+        # [Step 1] 지하철역 분석 (Haversine Logic 적용)
         sub_params = {"category_group_code": "SW8", "x": lng, "y": lat, "radius": 700, "sort": "distance"}
         subways_raw = _call_kakao_local("category", sub_params)
         subways = [s for s in subways_raw if '지하철,전철' in s.get('category_name', '')]
@@ -104,7 +104,7 @@ def get_commercial_analysis(lat, lng):
             target = exits[0] if exits else nearest
             exit_n = _extract_exit_number(target.get('place_name', '')) if exits else ""
             
-            # [v24.28.1] 좌표 추출 및 하버사인 거리 계산
+            # [v24.29.1 수술 완료] 하버사인 거리 계산 및 보정
             target_lat = float(target.get('y'))
             target_lng = float(target.get('x'))
             
@@ -112,7 +112,6 @@ def get_commercial_analysis(lat, lng):
             d = calculate_haversine(lat, lng, target_lat, target_lng)
             
             # 2. 도보 보정 (직선거리 * 1.25 / 분속 67m)
-            # 굴곡 보정 거리
             corrected_dist = d * 1.25
             t = round(corrected_dist / 67, 1)
             
@@ -135,7 +134,6 @@ def get_commercial_analysis(lat, lng):
         
         all_places = []
         for cat_name, code in target_cats.items():
-            # 각 카테고리별 상위 5개씩 수집
             p = {"category_group_code": code, "x": lng, "y": lat, "radius": 300, "sort": "distance", "size": 5}
             items = _call_kakao_local("category", p)
             for item in items:
@@ -146,7 +144,6 @@ def get_commercial_analysis(lat, lng):
                     "도보(분)": round(int(item.get('distance', 0)) / 67, 1)
                 })
         
-        # 거리순 정렬 후 상위 10개 추출
         if all_places:
             df_fac = pd.DataFrame(all_places)
             df_fac = df_fac.sort_values(by="거리(m)").head(10).reset_index(drop=True)
