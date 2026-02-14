@@ -114,8 +114,7 @@ def get_commercial_analysis(lat, lng):
 
         # [Step 1] 지하철역 분석 (Advanced Pedestrian Logic)
         sub_params = {"category_group_code": "SW8", "x": lng, "y": lat, "radius": 700, "sort": "distance"}
-        subways_raw = _call_kakao_local("category", sub_params)
-        subways = [s for s in subways_raw if '지하철,전철' in s.get('category_name', '')]
+        subways = _call_kakao_local("category", sub_params) # 필터 없이 전체 수용
 
         if subways:
             nearest_station = subways[0]
