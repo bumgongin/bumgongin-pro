@@ -1,12 +1,12 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.34.1 Phase 5)
-# Feature: Auto Contact Extraction, Dynamic Buttons, Regex Logic
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.34.2 Tabbed Layout)
+# Feature: Tabbed Detail View, Full-Field Fix, Safe DataFrame
 
 import streamlit as st
 import pandas as pd
 import time
 import math
-import re # [v24.34.1] 정규식 모듈 추가
+import re
 import core_engine as engine  # [Core Engine v24.29.2]
 import map_service as map_api # [Map Service v24.23.7]
 import styles                 # [Style Module v24.23.7]
@@ -15,7 +15,7 @@ import infra_engine           # [Infra Engine v24.30.1]
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
-st.set_page_config(page_title="범공인 Pro (v24.34.1)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="범공인 Pro (v24.34.2)", layout="wide", initial_sidebar_state="expanded")
 styles.apply_custom_css()
 
 # 상태 변수 초기화
@@ -220,7 +220,7 @@ def main_list_view():
                     _, msg, _ = engine.execute_transaction("copy", pd.DataFrame([item]), cur_tab, target)
                     st.success(msg); time.sleep(1.0) 
 
-            # [v24.34.1 Phase 5] 연락처 자동 추출 및 동적 버튼 생성
+            # [v24.34.1] 보안 정보 섹션 (연락처)
             st.divider()
             with st.expander("🔒 보안 정보 (임대인/연락처)", expanded=False):
                 owner = item.get('임대인', '미확인')
@@ -230,15 +230,11 @@ def main_list_view():
                 raw_c1 = str(item.get('연락처', '')).replace('nan', '')
                 raw_c2 = str(item.get('연락처2', '')).replace('nan', '')
                 full_text = f"{raw_c1} {raw_c2}"
-                
-                # 정규식으로 번호만 추출 (하이픈 포함)
                 found_numbers = re.findall(r'\d{2,3}-\d{3,4}-\d{4}', full_text)
-                
-                # 중복 제거 (순서 유지)
                 unique_numbers = sorted(set(found_numbers), key=found_numbers.index)
 
                 if unique_numbers:
-                    st.caption(f"📝 원문: {full_text.strip()}") # 식별용 원문
+                    st.caption(f"📝 원문: {full_text.strip()}") 
                     for num in unique_numbers:
                         c_call, c_sms = st.columns(2)
                         c_call.link_button(f"📞 통화 ({num})", f"tel:{num}", use_container_width=True)
@@ -246,66 +242,78 @@ def main_list_view():
                 else:
                     st.caption("🚫 등록된 연락처 번호가 없습니다.")
 
-            # 매물 정보 수정 폼 (Full-Loop 적용)
-            st.write("") 
-            with st.form("edit_form"):
-                st.markdown("#### 📝 매물 정보 수정")
-                c1, c2 = st.columns(2)
-                new_cat = c1.text_input("**구분**", value=item.get('구분', ''))
-                new_name = c2.text_input("**건물명**", value=item.get('건물명', ''))
-                
-                c3, c4 = st.columns(2)
-                if is_sale_mode:
-                    new_price = c3.text_input("**매매가**", value=str(item.get('매매가', 0)).replace(',',''))
-                    new_yield = c4.text_input("**수익률**", value=str(item.get('수익률', 0)).replace(',',''))
-                else:
-                    new_dep = c3.text_input("**보증금**", value=str(item.get('보증금', 0)).replace(',',''))
-                    new_rent = c4.text_input("**월세**", value=str(item.get('월차임', 0)).replace(',',''))
-                
-                c5, c6 = st.columns(2)
-                if is_sale_mode:
-                     new_land = c5.text_input("**대지면적**", value=str(item.get('대지면적', 0)).replace(',',''))
-                     new_total = c6.text_input("**연면적**", value=str(item.get('연면적', 0)).replace(',',''))
-                else:
-                     new_kwon = c5.text_input("**권리금**", value=str(item.get('권리금', 0)).replace(',',''))
-                     new_man = c6.text_input("**관리비**", value=str(item.get('관리비', 0)).replace(',',''))
-
-                c7, c8 = st.columns(2)
-                new_area = c7.text_input("**전용면적**", value=str(item.get('면적', 0)).replace(',',''))
-                new_floor = c8.text_input("**층수**", value=str(item.get('층', '')))
-                
-                new_desc = st.text_area("**특징**", value=item.get('내용', ''), height=150)
-                new_memo = st.text_area("**비고**", value=item.get('비고', ''), height=80)
-
-                # [v24.34.0] 숨겨진 나머지 컬럼 자동 생성 (Full-Loop)
-                exclude_cols = ['구분','건물명','매매가','수익률','대지면적','연면적','보증금','월차임','권리금','관리비','면적','층','내용','비고','선택','IronID','임대인','연락처','연락처2','지역_구','지역_동','번지']
-                extra_cols = [c for c in item.index if c not in exclude_cols]
-                
-                updated_extras = {}
-                if extra_cols:
-                    st.markdown("---")
-                    st.caption("기타 정보")
-                    for ecol in extra_cols:
-                        updated_extras[ecol] = st.text_input(ecol, value=str(item.get(ecol, '')).replace('nan',''))
-
-                if st.form_submit_button("💾 수정 완료", type="primary", use_container_width=True):
-                    updated_data = item.copy()
-                    updated_data.update({'구분': new_cat, '건물명': new_name, '면적': new_area, '층': new_floor, '내용': new_desc, '비고': new_memo})
-                    if is_sale_mode: updated_data.update({'매매가': new_price, '수익률': new_yield, '대지면적': new_land, '연면적': new_total})
-                    else: updated_data.update({'보증금': new_dep, '월차임': new_rent, '권리금': new_kwon, '관리비': new_man})
-                    
-                    # 기타 컬럼 업데이트 병합
-                    updated_data.update(updated_extras)
-                    
-                    success, msg = engine.update_single_row(updated_data, st.session_state.current_sheet)
-                    if success:
-                        st.success(msg); time.sleep(1.5); del st.session_state.df_main
-                        st.session_state.selected_item = None; st.cache_data.clear(); st.rerun()
-                    else: st.error(msg)
-            
-            # 카톡 브리핑 생성기 (순서 교정 완료)
+            # [v24.34.2] 탭 구조 적용 (Clean Layout)
             st.write("")
-            with st.expander("💬 카톡 브리핑 문구 생성 (복사용)", expanded=True):
+            tab1, tab2, tab3 = st.tabs(["📝 기본 수정", "📑 전체 정보", "💬 카톡 문구"])
+            
+            # TAB 1: 기본 수정 (핵심 정보)
+            with tab1:
+                with st.form("edit_form_basic"):
+                    c1, c2 = st.columns(2)
+                    new_cat = c1.text_input("**구분**", value=item.get('구분', ''))
+                    new_name = c2.text_input("**건물명**", value=item.get('건물명', ''))
+                    
+                    c3, c4 = st.columns(2)
+                    if is_sale_mode:
+                        new_price = c3.text_input("**매매가**", value=str(item.get('매매가', 0)).replace(',',''))
+                        new_yield = c4.text_input("**수익률**", value=str(item.get('수익률', 0)).replace(',',''))
+                    else:
+                        new_dep = c3.text_input("**보증금**", value=str(item.get('보증금', 0)).replace(',',''))
+                        new_rent = c4.text_input("**월세**", value=str(item.get('월차임', 0)).replace(',',''))
+                    
+                    c5, c6 = st.columns(2)
+                    if is_sale_mode:
+                         new_land = c5.text_input("**대지면적**", value=str(item.get('대지면적', 0)).replace(',',''))
+                         new_total = c6.text_input("**연면적**", value=str(item.get('연면적', 0)).replace(',',''))
+                    else:
+                         new_kwon = c5.text_input("**권리금**", value=str(item.get('권리금', 0)).replace(',',''))
+                         new_man = c6.text_input("**관리비**", value=str(item.get('관리비', 0)).replace(',',''))
+
+                    c7, c8 = st.columns(2)
+                    new_area = c7.text_input("**전용면적**", value=str(item.get('면적', 0)).replace(',',''))
+                    new_floor = c8.text_input("**층수**", value=str(item.get('층', '')))
+                    
+                    new_desc = st.text_area("**특징**", value=item.get('내용', ''), height=150)
+                    new_memo = st.text_area("**비고**", value=item.get('비고', ''), height=80)
+                    
+                    if st.form_submit_button("💾 기본 정보 저장", type="primary", use_container_width=True):
+                        updated_data = item.copy()
+                        updated_data.update({'구분': new_cat, '건물명': new_name, '면적': new_area, '층': new_floor, '내용': new_desc, '비고': new_memo})
+                        if is_sale_mode: updated_data.update({'매매가': new_price, '수익률': new_yield, '대지면적': new_land, '연면적': new_total})
+                        else: updated_data.update({'보증금': new_dep, '월차임': new_rent, '권리금': new_kwon, '관리비': new_man})
+                        
+                        success, msg = engine.update_single_row(updated_data, st.session_state.current_sheet)
+                        if success:
+                            st.success(msg); time.sleep(1.0); del st.session_state.df_main
+                            st.session_state.selected_item = None; st.cache_data.clear(); st.rerun()
+                        else: st.error(msg)
+
+            # TAB 2: 전체 정보 (Full-Loop)
+            with tab2:
+                with st.form("edit_form_full"):
+                    # 중복 및 시스템 컬럼 제외
+                    exclude_cols = ['구분','건물명','매매가','수익률','대지면적','연면적','보증금','월차임','권리금','관리비','면적','층','내용','비고','선택','IronID','임대인','연락처','연락처2','지역_구','지역_동','번지', '층_clean', 'Unnamed: 0']
+                    extra_cols = [c for c in item.index if c not in exclude_cols]
+                    
+                    updated_extras = {}
+                    if extra_cols:
+                        st.caption("※ 기본 탭에 없는 나머지 모든 정보를 수정합니다.")
+                        for ecol in extra_cols:
+                            updated_extras[ecol] = st.text_input(ecol, value=str(item.get(ecol, '')).replace('nan',''))
+                    else:
+                        st.info("추가 수정할 항목이 없습니다.")
+
+                    if st.form_submit_button("💾 전체 정보 저장", type="primary", use_container_width=True):
+                         updated_data = item.copy()
+                         updated_data.update(updated_extras)
+                         success, msg = engine.update_single_row(updated_data, st.session_state.current_sheet)
+                         if success:
+                            st.success(msg); time.sleep(1.0); del st.session_state.df_main
+                            st.session_state.selected_item = None; st.cache_data.clear(); st.rerun()
+                         else: st.error(msg)
+
+            # TAB 3: 카톡 브리핑
+            with tab3:
                 sub = st.session_state.infra_res_c.get('subway', {}) if st.session_state.infra_res_c else {}
                 walk_txt = ""
                 if sub.get('station') and sub['station'] != "정보 없음":
@@ -361,6 +369,7 @@ def main_list_view():
                     st.success(f"**🚆 {sub['station']} {sub.get('exit', '')}** | 도보 약 {w_min}분 ({sub['dist']}m)")
                 
                 c_a, c_b = st.columns(2)
+                # [v24.33.2] Safe DataFrame Sort Lock
                 with c_a:
                     st.markdown("##### 📍 인근 주변 시설 (300m 이내)")
                     fac_df = c_data.get('facilities')
