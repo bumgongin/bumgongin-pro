@@ -1,6 +1,6 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.34.3 Final Stable)
-# Feature: Layout Optimization (Map-Info-Analysis), Error Fix, Clean Fields
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.35.0 Hybrid Layout)
+# Feature: Layout Optimization, Ghost Char Fix, Error Guard
 
 import streamlit as st
 import pandas as pd
@@ -15,7 +15,7 @@ import infra_engine           # [Infra Engine v24.30.1]
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
-st.set_page_config(page_title="범공인 Pro (v24.34.3)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="범공인 Pro (v24.35.0)", layout="wide", initial_sidebar_state="expanded")
 styles.apply_custom_css()
 
 # 상태 변수 초기화
@@ -189,7 +189,7 @@ def main_list_view():
 
         # --- RIGHT COLUMN: ACTIONS, CONTACT, FORM ---
         with col_right:
-            # 1. 퀵 액션
+            # 1. 퀵 액션 버튼
             cur_tab = st.session_state.current_sheet
             base_label = "매매" if "매매" in cur_tab else "임대"
             
@@ -288,7 +288,7 @@ def main_list_view():
             # TAB 2: 전체 정보 (Full-Loop)
             with tab2:
                 with st.form("edit_form_full"):
-                    # [v24.34.3] Clean Field List (시스템 컬럼 제외)
+                    # [v24.35.0] Clean Field List (시스템 컬럼 제외)
                     exclude_cols = ['구분','건물명','매매가','수익률','대지면적','연면적','보증금','월차임','권리금','관리비','면적','층','내용','비고','선택','IronID','임대인','연락처','연락처2','지역_구','지역_동','번지', '층_clean', 'Unnamed: 0', '_match_sig']
                     extra_cols = [c for c in item.index if c not in exclude_cols]
                     
@@ -347,7 +347,7 @@ def main_list_view():
                 st.caption("▲ Copy 버튼으로 복사")
 
         # ----------------------------------------------------------------------
-        # [v24.34.3] 하단 통합 분석 섹션 (최하단 배치)
+        # [v24.35.0] 하단 통합 분석 섹션 (최하단 배치 - 하이브리드 레이아웃)
         # ----------------------------------------------------------------------
         st.divider()
         if lat and lng:
@@ -367,12 +367,14 @@ def main_list_view():
                     if w_min == 0: w_min = 1
                     st.success(f"**🚆 {sub['station']} {sub.get('exit', '')}** | 도보 약 {w_min}분 ({sub['dist']}m)")
                 
-                # [v24.34.3] DataFrame Safe Guard & Sort Lock
+                # [v24.35.0] TypeError Safe Guard & Sort Lock
                 c_a, c_b = st.columns(2)
                 with c_a:
                     st.markdown("##### 📍 인근 주변 시설 (300m 이내)")
                     fac_df = c_data.get('facilities')
                     if fac_df is not None and not fac_df.empty:
+                        # 컬럼명 정제 (Stripping)
+                        fac_df.columns = [str(c).strip() for c in fac_df.columns]
                         st.dataframe(
                             fac_df, 
                             hide_index=True, 
@@ -385,6 +387,8 @@ def main_list_view():
                     st.markdown("##### 🏆 상권 Top 10 브랜드 (1km)")
                     anchor_df = c_data.get('anchors')
                     if anchor_df is not None and not anchor_df.empty:
+                        # 컬럼명 정제 (Stripping)
+                        anchor_df.columns = [str(c).strip() for c in anchor_df.columns]
                         st.dataframe(
                             anchor_df, 
                             hide_index=True, 
@@ -431,7 +435,7 @@ def main_list_view():
         df_filtered['층_clean'] = pd.to_numeric(df_filtered['층_clean'], errors='coerce').fillna(1)
         # 3. 필터 적용 (불필요한 공백 및 유령 문자 제거 완료)
         df_filtered = df_filtered[
-            (df_filtered['층_clean'] >= st.session_state.min_fl) & 
+            (df_filtered['층_clean'] >= st.session_state.min_fl) & 
             (df_filtered['층_clean'] <= st.session_state.max_fl)
         ]
 
