@@ -1,6 +1,6 @@
 # core_engine.py
-# 범공인 Pro v24 Enterprise - Core Data Engine Module (v24.28.1)
-# Feature: Negative Floor Support & Robust Regex Sanitization
+# 범공인 Pro v24 Enterprise - Core Data Engine Module (v24.29.2)
+# Feature: Negative Floor Regex Fix (Precision Surgery)
 
 import streamlit as st
 import pandas as pd
@@ -69,24 +69,25 @@ def normalize_headers(df):
 def sanitize_dataframe(df):
     """
     데이터프레임 값을 정제합니다.
-    [v24.28.1] 층 컬럼은 마이너스(-) 기호를 보존하여 지하층을 올바르게 인식합니다.
-    나머지 숫자 컬럼은 숫자와 소수점만 남깁니다.
+    [v24.29.2 수술 완료] '층' 컬럼은 마이너스(-) 기호를 보존하여 지하층을 올바르게 인식합니다.
+    나머지 숫자 컬럼(금액, 면적 등)은 음수가 없으므로 기존대로 정제합니다.
     """
     for col in NUMERIC_COLS:
         if col in df.columns:
             try:
                 val_str = df[col].astype(str)
                 
+                # [수정된 로직] 층수는 마이너스 허용, 그 외는 숫자만 남김
                 if col == '층':
-                    # [지하층 복구 로직] 음수 기호(-)와 숫자, 소수점 추출
-                    # extract를 사용하여 첫 번째로 발견된 숫자 패턴(음수 포함)을 가져옵니다.
+                    # 정규식: 음수 기호(-) 옵션 포함, 숫자 및 소수점 추출
                     cleaned_series = val_str.str.extract(r'(-?[\d.]+)')[0]
+                    # 층수는 결측 시 1층으로 가정
+                    df[col] = pd.to_numeric(cleaned_series, errors='coerce').fillna(1)
                 else:
-                    # [일반 숫자 로직] 숫자(0-9)와 소수점(.)을 제외한 모든 문자 제거
+                    # 기존 로직: 숫자(0-9)와 소수점(.)을 제외한 모든 문자 제거 (음수 불가)
                     cleaned_series = val_str.str.replace(r'[^0-9.]', '', regex=True)
-                
-                # 빈 문자열 처리 및 숫자 변환
-                df[col] = pd.to_numeric(cleaned_series, errors='coerce').fillna(0)
+                    # 금액/면적은 결측 시 0으로 가정
+                    df[col] = pd.to_numeric(cleaned_series, errors='coerce').fillna(0)
             except: 
                 df[col] = 0.0
                 
@@ -132,7 +133,7 @@ def initialize_search_state():
         'min_price': 0.0, 'max_price': 10000000.0, 'min_dep': 0.0, 'max_dep': 1000000.0,
         'min_rent': 0.0, 'max_rent': 10000.0, 'min_kwon': 0.0, 'max_kwon': 100000.0,
         'min_area': 0.0, 'max_area': 10000.0, 'min_land': 0.0, 'max_land': 10000.0,
-        'min_total': 0.0, 'max_total': 10000.0, 'min_fl': -5.0, 'max_fl': 100.0 # 층 범위 확장
+        'min_total': 0.0, 'max_total': 10000.0, 'min_fl': -5.0, 'max_fl': 100.0
     }
     for k, v in defaults.items():
         if k not in st.session_state: st.session_state[k] = v
@@ -184,7 +185,6 @@ def load_sheet_data(sheet_name):
 def create_match_signature(df, keys):
     """
     데이터 매칭을 위한 고유 서명(Signature)을 생성합니다.
-    [v24.28.1] 층수의 음수값을 보존하여 서명을 생성합니다.
     """
     temp_df = df.copy()
     temp_df['_match_sig'] = ""
@@ -194,16 +194,13 @@ def create_match_signature(df, keys):
             if k in NUMERIC_COLS:
                 val_str = temp_df[k].astype(str)
                 if k == '층':
-                    # 층수는 음수 포함 추출
                     val_str = val_str.str.extract(r'(-?[\d.]+)')[0]
                 else:
-                    # 나머지는 숫자만
                     val_str = val_str.str.replace(r'[^0-9.]', '', regex=True)
                 
                 val = pd.to_numeric(val_str, errors='coerce').fillna(0)
                 temp_df['_match_sig'] += val.round(1).astype(str).str.replace(r'\.0$', '', regex=True) + "|"
             else:
-                # 문자형: 특수문자 제거, 앞 20글자만 사용
                 val = temp_df[k].astype(str).str[:20] if k == '내용' else temp_df[k].astype(str)
                 temp_df['_match_sig'] += val.str.replace(r'[^가-힣a-zA-Z0-9]', '', regex=True) + "|"
         except: continue
@@ -217,7 +214,6 @@ def create_match_signature(df, keys):
 def update_single_row(updated_row, sheet_name):
     """
     [Phase 4] 상세 보기 화면에서 단일 행을 즉시 업데이트합니다.
-    [v24.28.1] 층 수정 시 마이너스 기호 처리 로직 추가.
     """
     conn = st.connection("gsheets", type=GSheetsConnection)
     try:
@@ -231,7 +227,7 @@ def update_single_row(updated_row, sheet_name):
         if len(valid_keys) < 2: 
             return False, "식별 키 부족 (번지/층/면적 필수)"
         
-        # 3. 로컬 데이터 서명 생성 (정규식 이원화)
+        # 3. 로컬 데이터 서명 생성
         local_sig = ""
         for k in valid_keys:
              val_str = str(updated_row.get(k, ''))
@@ -248,7 +244,7 @@ def update_single_row(updated_row, sheet_name):
                  val = re.sub(r'[^가-힣a-zA-Z0-9]', '', val_str)
              local_sig += val + "|"
              
-        # 4. 서버 데이터 서명 생성 (정규식 이원화)
+        # 4. 서버 데이터 서명 생성
         server_sigs = []
         for _, row in sheet_data.iterrows():
             sig = ""
@@ -279,11 +275,9 @@ def update_single_row(updated_row, sheet_name):
                         try: 
                             raw_v = str(v)
                             if k == '층':
-                                # 층수는 마이너스 허용
                                 match = re.search(r'(-?[\d.]+)', raw_v)
                                 v_str = match.group(1) if match else "0"
                             else:
-                                # 일반 숫자는 마이너스 제거
                                 v_str = re.sub(r'[^0-9.]', '', raw_v)
                             
                             v = float(v_str) if v_str else 0.0
@@ -303,7 +297,6 @@ def update_single_row(updated_row, sheet_name):
 def save_updates_to_sheet(edited_df, original_df, sheet_name):
     """
     [Phase 1] 리스트/카드 뷰에서의 대량 수정 사항을 배치 저장합니다.
-    [v24.28.1] 지하층수 데이터 보존 로직 적용.
     """
     conn = st.connection("gsheets", type=GSheetsConnection)
     try:
@@ -327,7 +320,6 @@ def save_updates_to_sheet(edited_df, original_df, sheet_name):
                 valid_keys = [k for k in ['번지', '층', '면적', '매매가', '보증금'] if k in sheet_data.columns and k in df_org.columns]
                 if len(valid_keys) < 2: return False, "식별 키 부족", None
 
-                # 매칭 서명 생성 시에도 층수는 음수 허용 로직이 create_match_signature에 반영됨
                 target_sigs = create_match_signature(df_org.loc[changed_ids].reset_index(), valid_keys)['_match_sig'].tolist()
                 server_sigs = create_match_signature(sheet_data, valid_keys)
                 
@@ -343,13 +335,10 @@ def save_updates_to_sheet(edited_df, original_df, sheet_name):
                                     try: 
                                         val_str = str(val)
                                         if col == '층':
-                                            # 층일 경우 음수 패턴 추출
                                             match = re.search(r'(-?[\d.]+)', val_str)
                                             val_clean = match.group(1) if match else "0"
                                         else:
-                                            # 나머지는 숫자만
                                             val_clean = re.sub(r'[^0-9.]', '', val_str)
-                                            
                                         val = float(val_clean) if val_clean else 0.0
                                     except: val = 0.0
                                 sheet_data.at[match_idx, col] = val
