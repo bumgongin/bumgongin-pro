@@ -191,7 +191,18 @@ def main_list_view():
                         
                         if sub_info.get('station') and sub_info['station'] != "정보 없음":
                             # 🚆 상단 요약 바
-                            st.info(f"🚆 **{sub_info['station']} {sub_info.get('exit', '')}** | 도보 약 {sub_info['walk']}분")
+                            # [v24.30.5] 시간을 정수로 반올림하고 0분 방지 처리
+display_walk = int(round(sub_info['walk']))
+if display_walk == 0: display_walk = 1 
+
+# 역 명칭과 출구 사이 공백 정리
+station_display = f"{sub_info['station']} {sub_info.get('exit', '')}".strip()
+
+st.info(f"🚆 **{station_display}** | 도보 약 **{display_walk}분**")
+
+m1, m2 = st.columns(2)
+m1.metric("실제 이동 거리", f"{sub_info['dist']}m")
+m2.metric("정밀 도보 시간", f"{display_walk}분")
                             
                             # 📊 수치 메트릭 카드
                             m1, m2 = st.columns(2)
