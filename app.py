@@ -1,6 +1,6 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.31.0 Hotfix)
-# Feature: Selected Rows Definition Fix, Clean UI, Stable Logic
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.32.0 Briefing Gen)
+# Feature: Clean UI, Stable Logic, Kakao Briefing Generator
 
 import streamlit as st
 import pandas as pd
@@ -14,7 +14,7 @@ import infra_engine           # [Infra Engine v24.30.1]
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
-st.set_page_config(page_title="범공인 Pro (v24.31.0)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="범공인 Pro (v24.32.0)", layout="wide", initial_sidebar_state="expanded")
 styles.apply_custom_css()
 
 # 상태 변수 초기화
@@ -176,17 +176,52 @@ def main_list_view():
                 st.rerun()
             
             lat, lng = map_api.get_naver_geocode(addr_full)
+            
+            # [v24.31.0] 클린 복구 버전: 지하철 대시보드 및 카카오 링크 완전 삭제
             if lat and lng:
                 map_img = map_api.fetch_map_image(lat, lng, zoom_level=st.session_state.zoom_level)
-                
-                # [v24.31.0] 클린 복구 버전: 지하철 대시보드 및 카카오 링크 완전 삭제
                 if map_img: 
                     st.image(map_img, use_column_width=True)
-                    # 사장님 속 썩이던 지하철 정보와 카카오 버튼 구역을 통째로 들어냈습니다.
 
                 # 네이버 지도 버튼 하나만 깔끔하고 큼직하게 남겼습니다.
                 naver_url = f"https://map.naver.com/v5/search/{addr_full}?c={lng},{lat},17,0,0,0,dh"
                 st.link_button("📍 네이버 지도에서 위치 확인 (공식)", naver_url, use_container_width=True, type="primary")
+                
+                # --- [v24.32.0] 카톡 브리핑 문구 자동 생성기 추가 ---
+                st.divider()
+                with st.expander("💬 카톡 브리핑 문구 생성 (복사용)", expanded=True):
+                    # A. 지하철 도보 정보가 있는지 확인
+                    sub = st.session_state.infra_res_c.get('subway', {}) if st.session_state.infra_res_c else {}
+                    walk_txt = ""
+                    if sub.get('station') and sub['station'] != "정보 없음":
+                        w_min = int(round(sub['walk']))
+                        if w_min == 0: w_min = 1
+                        walk_txt = f" ({sub['station']} 도보 {w_min}분)"
+
+                    # B. 가격 정보 정리 (매매/임대 구분)
+                    is_sale = "매매" in st.session_state.current_sheet
+                    if is_sale:
+                        price_txt = f"매매 {int(item.get('매매가', 0)):,}만"
+                        if item.get('수익률', 0) > 0: price_txt += f" (수익률 {item['수익률']}%)"
+                    else:
+                        price_txt = f"보 {int(item.get('보증금', 0)):,} / 월 {int(item.get('월차임', 0)):,}"
+                        if item.get('관리비', 0) > 0: price_txt += f" (관 {int(item['관리비']):,})"
+
+                    # C. 면적 및 특징 정리
+                    spec_txt = f"{item.get('층', '')}층 / 실 {item.get('면적', 0)}평"
+                    desc_txt = item.get('내용', '상세내용 문의').strip()
+
+                    # D. 최종 템플릿 조립
+                    briefing_msg = f"""[범공인 매물 브리핑]
+📍 위치: {item.get('지역_구', '')} {item.get('지역_동', '')}{walk_txt}
+🏢 구분: {item.get('구분', '')} ({spec_txt})
+💰 조건: {price_txt}
+📝 특징: {desc_txt}"""
+
+                    # E. 복사 버튼이 포함된 텍스트 박스 출력
+                    st.code(briefing_msg, language=None)
+                    st.caption("▲ 우측 상단의 Copy 아이콘을 누르면 카톡에 바로 붙여넣을 수 있습니다.")
+
             else: 
                 st.warning("위치 확인 불가")
 
@@ -400,7 +435,7 @@ def main_list_view():
         if c_prev.button("◀", key="prev_list"):
             if st.session_state.page_num > 1: st.session_state.page_num -= 1; st.rerun()
         c_page.markdown(f"<div class='pagination-text'>{st.session_state.page_num} / {total_pages}</div>", unsafe_allow_html=True)
-        if c_next.button("▶", key="next_card"):
+        if c_next.button("▶", key="next_list"):
             if st.session_state.page_num < total_pages: st.session_state.page_num += 1; st.rerun()
 
     # ==========================================================================
@@ -520,14 +555,11 @@ def main_list_view():
                     st.success(msg); time.sleep(1); st.session_state.action_status = None
 
         elif st.session_state.action_status == 'delete_confirm':
-            with st.status("🗑️ 삭제 중...", expanded=True):
-                st.error("복구 불가")
-                if st.button("확인", key="conf_del", type="primary"):
+            with st.status("🗑️ 데이터 영구 삭제 경고", expanded=True):
+                st.error("⚠️ 주의: 삭제된 데이터는 복구할 수 없습니다.")
+                if st.button("영구 삭제 확정", key="conf_del", type="primary"):
                     _, msg, _ = engine.execute_transaction("delete", selected_rows, cur_tab)
-                    st.success(msg)
-                    time.sleep(1)
-                    del st.session_state.df_main
-                    engine.safe_reset()
+                    st.success(msg); time.sleep(1); del st.session_state.df_main; engine.safe_reset()
 
     with st.container(): st.write(""); st.write("")
 
