@@ -199,7 +199,7 @@ def main_list_view():
             lat, lng = map_api.get_naver_geocode(addr_full)
             if lat and lng:
                 # 기기별 높이: PC(800), 모바일(520) - 뷰 모드 기준으로 유추
-                map_h = 800 if st.session_state.view_mode == '🗂️ 카드 모드' else 520
+                map_h = 1000 if st.session_state.view_mode == '🗂️ 카드 모드' else 650
                 try:
                     map_img = map_api.fetch_map_image(lat, lng, zoom_level=st.session_state.zoom_level, height=map_h)
                 except:
