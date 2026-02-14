@@ -120,7 +120,15 @@ def get_commercial_analysis(lat, lng):
             exit_info = _extract_exit_number(final_node.get('place_name', ''))
             
             # 실제 보행자 경로 엔진 가동 (직선거리 로직 calculate_haversine 폐기)
-            dist, walk = _get_pedestrian_route(lng, lat, final_node['x'], final_node['y'])
+            # [v24.30.5] 카카오가 이미 계산한 거리를 최우선으로 사용
+api_dist = int(final_node.get('distance', 0))
+if api_dist > 0:
+    dist = api_dist
+    # 분속 67m 기준 (30m면 약 0.5분 -> 1분으로 표시)
+    walk = round(max(0.5, dist / 67), 1) 
+else:
+    # 거리가 없을 때만 보조 로직 작동
+    dist, walk = _get_pedestrian_route(lng, lat, final_node['x'], final_node['y'])
             
             result["subway"] = {
                 "station": name, "exit": exit_info, "dist": dist, "walk": walk,
