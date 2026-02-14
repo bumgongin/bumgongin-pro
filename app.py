@@ -1,6 +1,6 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.30.1 Hotfix)
-# Feature: Forced Dashboard, Filter Removed, Metric Cards
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.30.6 Indentation Fix)
+# Feature: Subway Quick Dashboard, Action Bar Safety Logic
 
 import streamlit as st
 import pandas as pd
@@ -14,7 +14,7 @@ import infra_engine           # [Infra Engine v24.30.1]
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
-st.set_page_config(page_title="범공인 Pro (v24.30.1)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="범공인 Pro (v24.30.6)", layout="wide", initial_sidebar_state="expanded")
 styles.apply_custom_css()
 
 # 상태 변수 초기화
@@ -25,7 +25,7 @@ if 'page_num' not in st.session_state: st.session_state.page_num = 1
 if 'selected_item' not in st.session_state: st.session_state.selected_item = None 
 if 'zoom_level' not in st.session_state: st.session_state.zoom_level = 16 
 
-# 인프라 분석 결과 보존을 위한 상태 변수 초기화
+# 인프라 분석 결과 보존을 위한 상태 변수 초기화 (단일 버튼 체제)
 if 'infra_res_c' not in st.session_state: st.session_state.infra_res_c = None 
 if 'last_analyzed_id' not in st.session_state: st.session_state.last_analyzed_id = None
 
@@ -142,7 +142,7 @@ with st.sidebar:
 # ==============================================================================
 st.title("🏙️ 범공인 매물장 (Pro)")
 
-# [v24.30.1] Fragment 잠시 해제
+# [v24.30.0] Fragment 잠시 해제 (안전성 우선)
 # @st.fragment
 def main_list_view():
     # --------------------------------------------------------------------------
@@ -181,41 +181,38 @@ def main_list_view():
             if lat and lng:
                 map_img = map_api.fetch_map_image(lat, lng, zoom_level=st.session_state.zoom_level)
                 
-                # [v24.30.1 수술] 지도 직후 지하철 퀵 대시보드 (강제 출력 로직)
+                # [v24.30.0] 지도 및 하단 지하철 대시보드 통합 출력
                 if map_img: 
                     st.image(map_img, use_column_width=True)
                     
+                    # --- 🚆 지도 직후 지하철 퀵 대시보드 (Smart Dashboard) ---
                     if st.session_state.infra_res_c:
                         infra_data = st.session_state.infra_res_c
                         sub_info = infra_data.get('subway', {})
                         
                         if sub_info.get('station') and sub_info['station'] != "정보 없음":
-                            # 🚆 상단 요약 바
-                            # [v24.30.5] 시간을 정수로 반올림하고 0분 방지 처리
-display_walk = int(round(sub_info['walk']))
-if display_walk == 0: display_walk = 1 
+                            # [v24.30.6] 들여쓰기 교정 및 뺑뺑이 제거 버전
+                            # 1. 시간을 정수로 반올림하고 0분 방지 처리
+                            display_walk = int(round(sub_info['walk']))
+                            if display_walk == 0: display_walk = 1 
 
-# 역 명칭과 출구 사이 공백 정리
-station_display = f"{sub_info['station']} {sub_info.get('exit', '')}".strip()
+                            # 2. 역 명칭과 출구 사이 공백 정리
+                            station_display = f"{sub_info['station']} {sub_info.get('exit', '')}".strip()
 
-st.info(f"🚆 **{station_display}** | 도보 약 **{display_walk}분**")
+                            # 3. 요약 바 출력
+                            st.info(f"🚆 **{station_display}** | 도보 약 **{display_walk}분**")
 
-m1, m2 = st.columns(2)
-m1.metric("실제 이동 거리", f"{sub_info['dist']}m")
-m2.metric("정밀 도보 시간", f"{display_walk}분")
-                            
-                            # 📊 수치 메트릭 카드
+                            # 4. 수치 메트릭 카드
                             m1, m2 = st.columns(2)
-                            m1.metric("실제 도로 거리", f"{sub_info['dist']}m")
-                            m2.metric("정밀 도보 시간", f"{sub_info['walk']}분")
+                            m1.metric("실제 이동 거리", f"{sub_info['dist']}m")
+                            m2.metric("정밀 도보 시간", f"{display_walk}분")
                             
-                            # 🚶 카카오맵 길찾기 연동
+                            # 5. 카카오맵 연동 버튼
                             target_pos = sub_info.get('coords', {}).get('target', (0,0))
                             if target_pos != (0, 0):
                                 kakao_link = f"https://map.kakao.com/link/from/매물,{lat},{lng}/to/{sub_info['station']},{target_pos[0]},{target_pos[1]}"
                                 st.link_button("🚶 카카오맵 실제 도보 경로 확인", kakao_link, use_container_width=True)
                         else:
-                            # 데이터가 없을 때의 피드백
                             st.warning("⚠️ 주변 700m 내에 검색된 지하철역이 없습니다.")
                     
                     # 네이버 지도 버튼 (기존 유지)
@@ -493,14 +490,9 @@ m2.metric("정밀 도보 시간", f"{display_walk}분")
                     st.cache_data.clear(); st.rerun()
                 else: st.error(msg)
     
-    # --- UNIVERSAL ACTION BAR ---
+    # --- UNIVERSAL ACTION BAR LOGIC REPAIR ---
+    # [v24.30.0] 액션 바 로직 정밀 분리 (이동/복구/삭제 안전장치)
     st.divider()
-    if st.session_state.view_mode == '📋 리스트 모드':
-        try: selected_rows = edited_df[edited_df['선택'] == True].drop(columns=['🔍'], errors='ignore')
-        except: selected_rows = pd.DataFrame()
-    else:
-        selected_rows = st.session_state.df_main[st.session_state.df_main['선택'] == True]
-        
     if len(selected_rows) > 0:
         st.success(f"✅ {len(selected_rows)}건 선택됨")
         cur_tab = st.session_state.current_sheet
@@ -522,7 +514,6 @@ m2.metric("정밀 도보 시간", f"{display_walk}분")
         with ac3:
             if st.button("🗑️ 삭제", type="primary", use_container_width=True, key="btn_del"): st.session_state.action_status = 'delete_confirm'
 
-        # [v24.30.0] 액션 바 로직 정밀 분리 (이동/복구/삭제 안전장치)
         if st.session_state.action_status == 'move_confirm':
             target = f"{base_tab}(종료)"
             with st.status(f"🚀 '{target}' 시트로 이동 중...", expanded=True):
