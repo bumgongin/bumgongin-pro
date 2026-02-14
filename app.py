@@ -1,6 +1,6 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.33.0 Phase 1)
-# Feature: Intelligent Buttons, Hot Reload Sync, Safe Copy
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.33.1 Phase 2)
+# Feature: Briefing Order Fix (Bo/Wol/Gwan/Kwon), Clean UI, Stable Logic
 
 import streamlit as st
 import pandas as pd
@@ -14,7 +14,7 @@ import infra_engine           # [Infra Engine v24.30.1]
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
-st.set_page_config(page_title="범공인 Pro (v24.33.0)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="범공인 Pro (v24.33.1)", layout="wide", initial_sidebar_state="expanded")
 styles.apply_custom_css()
 
 # 상태 변수 초기화
@@ -194,13 +194,13 @@ def main_list_view():
             cur_tab = st.session_state.current_sheet
             base_label = "매매" if "매매" in cur_tab else "임대"
             
-            # Case A: 브리핑 시트 (삭제 버튼만 표시)
+            # Case A: 브리핑 시트
             if "브리핑" in cur_tab:
                  if st.button("🗑️ 브리핑 삭제 (영구)", use_container_width=True, type="primary"):
                      _, msg, _ = engine.execute_transaction("delete", pd.DataFrame([item]), cur_tab)
                      st.success(msg); time.sleep(1.0); st.session_state.selected_item = None; del st.session_state.df_main; st.rerun()
             
-            # Case B: 종료 시트 (복구 + 복사)
+            # Case B: 종료 시트
             elif "(종료)" in cur_tab:
                 base_tab = cur_tab.replace("(종료)", "").strip()
                 q1, q2 = st.columns(2)
@@ -211,9 +211,9 @@ def main_list_view():
                 if q2.button(f"🚀 {base_label} 브리핑 복사", use_container_width=True):
                     target = f"{base_label}브리핑"
                     _, msg, _ = engine.execute_transaction("copy", pd.DataFrame([item]), cur_tab, target)
-                    st.success(msg); time.sleep(1.0) # 복사는 리스트 갱신 불필요
+                    st.success(msg); time.sleep(1.0)
             
-            # Case C: 일반 시트 (종료 + 복사)
+            # Case C: 일반 시트
             else:
                 q1, q2 = st.columns(2)
                 if q1.button(f"🚩 {base_label} 종료 처리", use_container_width=True):
@@ -269,7 +269,7 @@ def main_list_view():
                         st.session_state.selected_item = None; st.cache_data.clear(); st.rerun()
                     else: st.error(msg)
             
-            # 카톡 브리핑 생성기
+            # 카톡 브리핑 생성기 (순서 교정 완료)
             st.write("")
             with st.expander("💬 카톡 브리핑 문구 생성 (복사용)", expanded=True):
                 sub = st.session_state.infra_res_c.get('subway', {}) if st.session_state.infra_res_c else {}
@@ -279,17 +279,30 @@ def main_list_view():
                     if w_min == 0: w_min = 1
                     walk_txt = f" ({sub['station']} 도보 {w_min}분)"
 
+                # [v24.33.1 Phase 2] 브리핑 문구 순서 교정 (보->월->관->권)
                 is_sale = "매매" in st.session_state.current_sheet
                 addr_disp = f"{item.get('지역_구', '')} {item.get('지역_동', '')} {item.get('번지', '')}".strip()
                 
                 if is_sale:
+                    # 매매 모드: 매매가 / 수익률 순서
                     price_txt = f"매매 {int(item.get('매매가', 0)):,}만"
-                    if item.get('수익률', 0) > 0: price_txt += f" (수익률 {item['수익률']}%)"
+                    if item.get('수익률', 0) > 0: price_txt += f" / 수익 {item['수익률']}%"
                 else:
+                    # 임대 모드: 보증금 / 월세 / 관리비 / 권리금 순서로 재배치
+                    dep = int(item.get('보증금', 0))
+                    rent = int(item.get('월차임', 0))
+                    man = int(item.get('관리비', 0))
                     kwon = int(item.get('권리금', 0))
-                    kwon_txt = f" / 권 {kwon:,}" if kwon > 0 else " / 권 무"
-                    price_txt = f"보 {int(item.get('보증금', 0)):,} / 월 {int(item.get('월차임', 0)):,}{kwon_txt}"
-                    if item.get('관리비', 0) > 0: price_txt += f" (관 {int(item['관리비']):,})"
+                    
+                    # 1. 보증금 / 월세 기본 구성
+                    price_txt = f"보 {dep:,} / 월 {rent:,}"
+                    
+                    # 2. 관리비 추가 (괄호 없이 슬래시 구분)
+                    if man > 0: price_txt += f" / 관 {man:,}"
+                    
+                    # 3. 권리금 추가 (마지막 배치)
+                    if kwon > 0: price_txt += f" / 권 {kwon:,}"
+                    else: price_txt += " / 권 무"
 
                 spec_txt = f"{item.get('층', '')}층 / 실 {item.get('면적', 0)}평"
                 desc_txt = item.get('내용', '상세내용 문의').strip()
