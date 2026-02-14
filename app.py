@@ -1,6 +1,6 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.27.2)
-# Feature: Visualization Invincible Logic, Metric Badges, Enhanced Layout
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.27.3)
+# Feature: Urgent Debugging, Force Visualization, Fragment Disabled
 
 import streamlit as st
 import pandas as pd
@@ -14,7 +14,7 @@ import infra_engine           # [Infra Engine v24.27.2]
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
-st.set_page_config(page_title="범공인 Pro (v24.27.2)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="범공인 Pro (v24.27.3)", layout="wide", initial_sidebar_state="expanded")
 styles.apply_custom_css()
 
 # 상태 변수 초기화
@@ -148,7 +148,8 @@ with st.sidebar:
 # ==============================================================================
 st.title("🏙️ 범공인 매물장 (Pro)")
 
-@st.fragment
+# [v24.27.3 Debugging] Fragment 해제 (주석 처리)
+# @st.fragment
 def main_list_view():
     # --------------------------------------------------------------------------
     # [DETAIL VIEW] Edit Mode with Map & Infra
@@ -189,7 +190,7 @@ def main_list_view():
                 if map_img: st.image(map_img, use_column_width=True)
                 else: st.warning("지도 로드 실패")
                 
-                # [카카오맵 연동 - 지도 바로 아래 배치, Primary Style]
+                # [카카오맵 연동]
                 st.link_button("📍 카카오맵에서 실시간 로드뷰 확인", f"https://map.kakao.com/link/map/{item.get('건물명', '매물')},{lat},{lng}", use_container_width=True, type="primary")
             else: st.warning("위치 확인 불가")
 
@@ -235,14 +236,13 @@ def main_list_view():
                     st.session_state.selected_item = None; st.cache_data.clear(); st.rerun()
                 else: st.error(msg)
         
-        # [INFRA ANALYSIS - V24.27.2 INVINCIBLE VISUALIZATION]
+        # [INFRA ANALYSIS - V24.27.3 DEBUGGING MODE]
         st.markdown("---")
         st.subheader("🏗️ 주변 인프라 분석 (반경 500~700m)")
         
         if not (lat and lng):
             st.error("⚠️ 좌표 정보가 없어 분석할 수 없습니다.")
         else:
-            # 1. 2버튼 배치
             col_left, col_right = st.columns([1, 1])
             
             # [Left] 상권 & 역세권 분석
@@ -250,7 +250,10 @@ def main_list_view():
                 if st.button("📊 상권 & 역세권 분석", use_container_width=True):
                     try:
                         with st.spinner("지하철 및 상권 스캔 중..."):
-                            st.session_state.infra_res_c = cached_commercial(lat, lng)
+                            res = cached_commercial(lat, lng)
+                            st.session_state.infra_res_c = res
+                            # [v24.27.3 디버깅: 엔진 응답 강제 출력]
+                            st.write("DEBUG: 엔진 응답 확인", res.get('counts'))
                     except Exception as e: st.error(f"오류: {e}")
 
             # [Right] 배후 수요 분석
@@ -269,7 +272,7 @@ def main_list_view():
             if st.session_state.infra_res_c:
                 c_data = st.session_state.infra_res_c
                 
-                # 1. 지하철 역세권 뱃지 (최상단 고정)
+                # 1. 지하철 역세권 뱃지
                 sub = c_data.get('subway', {})
                 if sub.get('station') and sub['station'] != "정보 없음":
                     st.success(f"**🚆 {sub['station']} {sub.get('exit','')}** | 도보 약 {sub['walk']}분 ({sub['dist']}m)")
@@ -279,25 +282,31 @@ def main_list_view():
                 # 2. 10대 업종 수치 뱃지 (차트 위 강제 출력)
                 st.markdown("##### 📊 주변 업종 상세 수치")
                 counts = c_data.get('counts', {})
-                if counts:
-                    # 5개씩 2줄로 숫자 먼저 보여주기
-                    m_cols = st.columns(5)
-                    for i, (name, val) in enumerate(counts.items()):
-                        m_cols[i % 5].metric(name, f"{val}개")
-                    
-                    st.write("") # 간격
-                    
-                    # 3. 차트와 앵커시설 2열 배치
-                    chart_col, anchor_col = st.columns([1.2, 1])
-                    with chart_col:
-                        st.markdown("##### 📈 밀집도 그래프")
-                        # DataFrame으로 형식을 완전히 굳혀서 전달 (수치 실종 방지)
-                        df_chart = pd.DataFrame.from_dict(counts, orient='index', columns=['개수'])
-                        st.bar_chart(df_chart, height=400, color="#FF8C00") # 오렌지색
-                    
-                    with anchor_col:
-                        st.markdown("##### 🏆 브랜드 Top 10")
-                        st.dataframe(c_data['anchors'], hide_index=True, use_container_width=True)
+                
+                # [v24.27.3 최후의 보루: 데이터 없으면 더미 데이터라도 표시]
+                if not counts:
+                    counts = {"데이터 대기 중": 0}
+
+                # 5개씩 2줄로 숫자 먼저 보여주기
+                m_cols = st.columns(5)
+                # counts가 비어있지 않으므로 루프 가능
+                items = list(counts.items())
+                for i, (name, val) in enumerate(items):
+                    m_cols[i % 5].metric(name, f"{val}개")
+                
+                st.write("") # 간격
+                
+                # 3. 차트와 앵커시설 2열 배치
+                chart_col, anchor_col = st.columns([1.2, 1])
+                with chart_col:
+                    st.markdown("##### 📈 밀집도 그래프")
+                    # DataFrame으로 형식을 완전히 굳혀서 전달 (수치 실종 방지)
+                    df_chart = pd.DataFrame.from_dict(counts, orient='index', columns=['개수'])
+                    st.bar_chart(df_chart, height=400, color="#FF8C00") # 오렌지색
+                
+                with anchor_col:
+                    st.markdown("##### 🏆 브랜드 Top 10")
+                    st.dataframe(c_data['anchors'], hide_index=True, use_container_width=True)
 
             # [B. 배후 수요 결과]
             if st.session_state.infra_res_d is not None:
