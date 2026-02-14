@@ -82,13 +82,13 @@ def _get_pedestrian_route(origin_lng, origin_lat, dest_lng, dest_lat):
     return int(line_dist * 1.3), round((line_dist * 1.3) / 67, 1)
 
 # ==========================================
-# 3. 핵심 분석 함수 (v24.30.7 수술 적용)
+# 3. 핵심 분석 함수 (v24.31.0 로직 단순화 적용)
 # ==========================================
 
 def get_commercial_analysis(lat, lng):
     """
-    [v24.30.7] 정밀 거리 보정판
-    1. 지하철역 분석 (카카오 API 직접 거리 사용)
+    [v24.31.0] 로직 단순화 버전
+    1. 지하철역 분석 (카카오 API 단순 거리)
     2. 주변 시설 및 앵커 브랜드 스캔
     """
     result = {
@@ -103,33 +103,25 @@ def get_commercial_analysis(lat, lng):
     try:
         if not lat or not lng: return result
 
-        # [수술] 지하철 필터 해제 및 검색
-        sub_params = {"category_group_code": "SW8", "x": lng, "y": lat, "radius": 700, "sort": "distance"}
+        # [v24.31.0] 지하철 분석 로직 단순화: 뺑뺑이 길찾기 삭제
+        sub_params = {"category_group_code": "SW8", "x": lng, "y": lat, "radius": 1500, "sort": "distance"}
         subways = _call_kakao_local("category", sub_params)
 
         if subways:
             target_node = subways[0]
-            name = target_node.get('place_name', '').split()[0]
+            # 역 이름 정제 (괄호 제거)
+            raw_name = target_node.get('place_name', '')
+            name = re.sub(r'\(.*\)', '', raw_name).strip().split()[0]
             
-            # 출구 검색
-            exit_params = {"query": f"{name} 출구", "x": lng, "y": lat, "radius": 800, "sort": "distance", "size": 1}
-            exits = _call_kakao_local("keyword", exit_params)
-            
-            final_node = exits[0] if exits else target_node
-            exit_info = _extract_exit_number(final_node.get('place_name', ''))
-            
-            # [핵심 수술] 뺑뺑이 방지: 카카오가 이미 계산한 거리를 최우선 사용
-            api_dist = int(final_node.get('distance', 0))
-            if api_dist > 0:
-                dist = api_dist
-                # 30m면 0.44분 -> 1분으로 표시되도록 보정
-                walk = round(max(0.5, dist / 67), 1) 
-            else:
-                dist, walk = _get_pedestrian_route(lng, lat, final_node['x'], final_node['y'])
+            # 카카오가 주는 거리값 그대로 사용
+            dist = int(target_node.get('distance', 0))
             
             result["subway"] = {
-                "station": name, "exit": exit_info, "dist": dist, "walk": walk,
-                "coords": {"origin": (lat, lng), "target": (final_node['y'], final_node['x'])}
+                "station": name, 
+                "exit": "", # 불필요한 정보 삭제
+                "dist": dist, 
+                "walk": round(dist / 67, 1), # 단순 도보 시간 계산
+                "coords": {"origin": (lat, lng), "target": (target_node['y'], target_node['x'])}
             }
 
         # [Step 2] 주변 10대 필수 시설 리스트 (기존 유지)
