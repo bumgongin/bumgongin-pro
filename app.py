@@ -1,6 +1,6 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.29.3)
-# Feature: Kakao Walk Path Link, Action Bar Logic Repair
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.30.0)
+# Feature: Subway Quick Dashboard, Action Bar Safety Logic
 
 import streamlit as st
 import pandas as pd
@@ -14,7 +14,7 @@ import infra_engine           # [Infra Engine v24.28.1]
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
-st.set_page_config(page_title="범공인 Pro (v24.29.3)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="범공인 Pro (v24.30.0)", layout="wide", initial_sidebar_state="expanded")
 styles.apply_custom_css()
 
 # 상태 변수 초기화
@@ -142,7 +142,7 @@ with st.sidebar:
 # ==============================================================================
 st.title("🏙️ 범공인 매물장 (Pro)")
 
-# [v24.28.0] Fragment 잠시 해제 (안전성 우선)
+# [v24.30.0] Fragment 잠시 해제
 # @st.fragment
 def main_list_view():
     # --------------------------------------------------------------------------
@@ -180,11 +180,41 @@ def main_list_view():
             lat, lng = map_api.get_naver_geocode(addr_full)
             if lat and lng:
                 map_img = map_api.fetch_map_image(lat, lng, zoom_level=st.session_state.zoom_level)
-                if map_img: st.image(map_img, use_column_width=True)
-                else: st.warning("지도 로드 실패")
                 
-                # [네이버 지도 연동 - v24.28.1 주소 기준]
-                st.link_button("📍 네이버 지도에서 위치 확인", f"https://map.naver.com/v5/search/{addr_full}?c={lng},{lat},17,0,0,0,dh", use_container_width=True, type="primary")
+                # [v24.30.0] 지도 및 하단 지하철 대시보드 통합 출력
+                if map_img: 
+                    st.image(map_img, use_column_width=True)
+                    
+                    # --- 🚆 지도 직후 지하철 퀵 대시보드 (Smart Dashboard) ---
+                    if st.session_state.infra_res_c:
+                        sub = st.session_state.infra_res_c.get('subway', {})
+                        if sub.get('station') and sub['station'] != "정보 없음":
+                            st.info("👇 지도 기반 실제 도보 분석 결과입니다")
+                            
+                            # 1. 시각적 정보 카드 (아이콘 + 역정보 + 시간/거리)
+                            c1, c2, c3 = st.columns([1, 2, 2])
+                            with c1: 
+                                st.markdown("## 🚆") # 대형 아이콘
+                            with c2:
+                                st.markdown(f"**{sub['station']}**")
+                                st.caption(f"{sub.get('exit', '인근')}")
+                            with c3:
+                                st.markdown(f"**도보 {sub['walk']}분**")
+                                st.caption(f"실거리 {sub['dist']}m")
+                            
+                            # 2. 카카오 도보 경로 버튼 (카드 밀착 배치)
+                            coords = sub.get('coords', {})
+                            t_lat, t_lng = coords.get('target', (0,0))
+                            if t_lat != 0:
+                                # 매물 좌표(origin)와 역 좌표(target)를 연결
+                                link = f"https://map.kakao.com/link/from/매물,{lat},{lng}/to/{sub['station']},{t_lat},{t_lng}"
+                                st.link_button("🚶 카카오맵 실시간 도보경로 확인", link, use_container_width=True)
+                    # -----------------------------------------------------
+
+                    # 네이버 지도 버튼 (기존 유지)
+                    st.link_button("📍 네이버 지도에서 위치 확인", f"https://map.naver.com/v5/search/{addr_full}?c={lng},{lat},17,0,0,0,dh", use_container_width=True, type="primary")
+                else: 
+                    st.warning("지도 로드 실패")
             else: st.warning("위치 확인 불가")
 
         st.divider()
@@ -229,7 +259,7 @@ def main_list_view():
                     st.session_state.selected_item = None; st.cache_data.clear(); st.rerun()
                 else: st.error(msg)
         
-        # [INFRA ANALYSIS - V24.29.0 SINGLE BUTTON UI]
+        # [INFRA ANALYSIS - V24.30.0 SINGLE BUTTON UI]
         st.markdown("---")
         
         if not (lat and lng):
@@ -248,19 +278,8 @@ def main_list_view():
             if st.session_state.infra_res_c:
                 c_data = st.session_state.infra_res_c
                 
-                # 2-1. 지하철 역세권 결론 & 카카오 도보 경로 [v24.29.3 수술 완료]
-                sub = c_data.get('subway', {})
-                if sub.get('station') and sub['station'] != "정보 없음":
-                    st.success(f"**🚆 {sub['station']} {sub.get('exit','')}** | 도보 약 {sub['walk']}분 ({sub['dist']}m)")
-                    
-                    # [v24.29.3 추가] 엔진에서 넘어온 좌표로 공식 길찾기 링크 생성
-                    coords = sub.get('coords', {})
-                    target_coords = coords.get('target')
-                    if target_coords and target_coords != (0, 0):
-                        t_lat, t_lng = target_coords
-                        st.link_button("🚶 카카오맵 도보 경로 확인", f"https://map.kakao.com/link/from/매물,{lat},{lng}/to/{sub['station']},{t_lat},{t_lng}", use_container_width=True)
-                else:
-                    st.warning("🚆 반경 700m 내 유효한 지하철역 정보 없음")
+                # 2-1. 지하철 정보는 지도 아래에 이미 출력됨 (중복 방지 위해 여기선 생략 가능하지만, 리스트 가독성을 위해 유지도 무방)
+                # 여기서는 시설 리스트와 앵커만 보여줌
 
                 # 2-2. 인근 주변 시설 리스트 (표 형태)
                 st.markdown("##### 📍 인근 주변 시설 (300m 이내)")
@@ -468,7 +487,7 @@ def main_list_view():
                     st.cache_data.clear(); st.rerun()
                 else: st.error(msg)
     
-    # --- UNIVERSAL ACTION BAR LOGIC REPAIR ---
+    # --- UNIVERSAL ACTION BAR ---
     st.divider()
     if st.session_state.view_mode == '📋 리스트 모드':
         try: selected_rows = edited_df[edited_df['선택'] == True].drop(columns=['🔍'], errors='ignore')
@@ -497,29 +516,30 @@ def main_list_view():
         with ac3:
             if st.button("🗑️ 삭제", type="primary", use_container_width=True, key="btn_del"): st.session_state.action_status = 'delete_confirm'
 
+        # [v24.30.0] 액션 바 로직 정밀 분리 (이동/복구/삭제 안전장치)
         if st.session_state.action_status == 'move_confirm':
             target = f"{base_tab}(종료)"
-            with st.status(f"🚀 {target}으로 이동 중...", expanded=True):
+            with st.status(f"🚀 '{target}' 시트로 이동 중...", expanded=True):
                 if st.button("이동 확정", key="conf_move", type="primary"):
                     _, msg, _ = engine.execute_transaction("move", selected_rows, cur_tab, target)
                     st.success(msg); time.sleep(1); del st.session_state.df_main; engine.safe_reset()
 
         elif st.session_state.action_status == 'restore_confirm':
-            with st.status(f"♻️ {base_tab}으로 복구 중...", expanded=True):
+            with st.status(f"♻️ '{base_tab}' 시트로 복구 중...", expanded=True):
                 if st.button("복구 확정", key="conf_restore", type="primary"):
                     _, msg, _ = engine.execute_transaction("restore", selected_rows, cur_tab, base_tab)
                     st.success(msg); time.sleep(1); del st.session_state.df_main; engine.safe_reset()
 
         elif st.session_state.action_status == 'copy_confirm':
              target = f"{base_tab}브리핑"
-             with st.status(f"📋 복사 중...", expanded=True):
-                if st.button("확인", key="conf_copy", type="primary"):
+             with st.status(f"📋 '{target}' 시트로 복사 중...", expanded=True):
+                if st.button("복사 확정", key="conf_copy", type="primary"):
                     _, msg, _ = engine.execute_transaction("copy", selected_rows, cur_tab, target)
                     st.success(msg); time.sleep(1); st.session_state.action_status = None
 
         elif st.session_state.action_status == 'delete_confirm':
-            with st.status("🗑️ 데이터 영구 삭제 중...", expanded=True):
-                st.error("⚠️ 경고: 삭제 후 복구가 불가능합니다.")
+            with st.status("🗑️ 데이터 영구 삭제 경고", expanded=True):
+                st.error("⚠️ 주의: 삭제된 데이터는 복구할 수 없습니다.")
                 if st.button("영구 삭제 확정", key="conf_del", type="primary"):
                     _, msg, _ = engine.execute_transaction("delete", selected_rows, cur_tab)
                     st.success(msg); time.sleep(1); del st.session_state.df_main; engine.safe_reset()
