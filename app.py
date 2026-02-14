@@ -1,6 +1,6 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.30.0)
-# Feature: Subway Quick Dashboard, Action Bar Safety Logic
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.30.1 Hotfix)
+# Feature: Forced Dashboard, Filter Removed, Metric Cards
 
 import streamlit as st
 import pandas as pd
@@ -9,12 +9,12 @@ import math
 import core_engine as engine  # [Core Engine v24.29.2]
 import map_service as map_api # [Map Service v24.23.7]
 import styles                 # [Style Module v24.23.7]
-import infra_engine           # [Infra Engine v24.28.1]
+import infra_engine           # [Infra Engine v24.30.1]
 
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
-st.set_page_config(page_title="범공인 Pro (v24.30.0)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="범공인 Pro (v24.30.1)", layout="wide", initial_sidebar_state="expanded")
 styles.apply_custom_css()
 
 # 상태 변수 초기화
@@ -25,7 +25,7 @@ if 'page_num' not in st.session_state: st.session_state.page_num = 1
 if 'selected_item' not in st.session_state: st.session_state.selected_item = None 
 if 'zoom_level' not in st.session_state: st.session_state.zoom_level = 16 
 
-# 인프라 분석 결과 보존을 위한 상태 변수 초기화 (단일 버튼 체제)
+# 인프라 분석 결과 보존을 위한 상태 변수 초기화
 if 'infra_res_c' not in st.session_state: st.session_state.infra_res_c = None 
 if 'last_analyzed_id' not in st.session_state: st.session_state.last_analyzed_id = None
 
@@ -42,7 +42,7 @@ def sess(key): return st.session_state[key]
 # ==============================================================================
 @st.cache_data(ttl=3600, show_spinner=False)
 def cached_commercial(lat, lng):
-    # v24.28.1: 통합 상권 분석 (리스트형 + 하버사인 거리)
+    # v24.30.1: 통합 상권 분석 (필터 해제 + 보행자 경로)
     return infra_engine.get_commercial_analysis(lat, lng)
 
 # ==============================================================================
@@ -142,7 +142,7 @@ with st.sidebar:
 # ==============================================================================
 st.title("🏙️ 범공인 매물장 (Pro)")
 
-# [v24.30.0] Fragment 잠시 해제
+# [v24.30.1] Fragment 잠시 해제
 # @st.fragment
 def main_list_view():
     # --------------------------------------------------------------------------
@@ -181,41 +181,32 @@ def main_list_view():
             if lat and lng:
                 map_img = map_api.fetch_map_image(lat, lng, zoom_level=st.session_state.zoom_level)
                 
-                # [v24.30.0] 지도 및 하단 지하철 대시보드 통합 출력
+                # [v24.30.1 수술] 지도 직후 지하철 퀵 대시보드 (강제 출력 로직)
                 if map_img: 
                     st.image(map_img, use_column_width=True)
                     
-                    # --- 🚆 지도 직후 지하철 퀵 대시보드 (Smart Dashboard) ---
                     if st.session_state.infra_res_c:
-                        sub = st.session_state.infra_res_c.get('subway', {})
-if sub.get('station') and sub['station'] != "정보 없음":
-    st.info("👇 지도 기반 실제 도보 분석 결과입니다")
-    # (기존 대시보드 코드 유지)
-    ...
-else:
-    # 역을 못 찾았을 때 안내 문구 강제 출력
-    st.warning("⚠️ 반경 700m 내에 검색된 지하철역이 없습니다.")
+                        infra_data = st.session_state.infra_res_c
+                        sub_info = infra_data.get('subway', {})
+                        
+                        if sub_info.get('station') and sub_info['station'] != "정보 없음":
+                            # 🚆 상단 요약 바
+                            st.info(f"🚆 **{sub_info['station']} {sub_info.get('exit', '')}** | 도보 약 {sub_info['walk']}분")
                             
-                            # 1. 시각적 정보 카드 (아이콘 + 역정보 + 시간/거리)
-                            c1, c2, c3 = st.columns([1, 2, 2])
-                            with c1: 
-                                st.markdown("## 🚆") # 대형 아이콘
-                            with c2:
-                                st.markdown(f"**{sub['station']}**")
-                                st.caption(f"{sub.get('exit', '인근')}")
-                            with c3:
-                                st.markdown(f"**도보 {sub['walk']}분**")
-                                st.caption(f"실거리 {sub['dist']}m")
+                            # 📊 수치 메트릭 카드
+                            m1, m2 = st.columns(2)
+                            m1.metric("실제 도로 거리", f"{sub_info['dist']}m")
+                            m2.metric("정밀 도보 시간", f"{sub_info['walk']}분")
                             
-                            # 2. 카카오 도보 경로 버튼 (카드 밀착 배치)
-                            coords = sub.get('coords', {})
-                            t_lat, t_lng = coords.get('target', (0,0))
-                            if t_lat != 0:
-                                # 매물 좌표(origin)와 역 좌표(target)를 연결
-                                link = f"https://map.kakao.com/link/from/매물,{lat},{lng}/to/{sub['station']},{t_lat},{t_lng}"
-                                st.link_button("🚶 카카오맵 실시간 도보경로 확인", link, use_container_width=True)
-                    # -----------------------------------------------------
-
+                            # 🚶 카카오맵 길찾기 연동
+                            target_pos = sub_info.get('coords', {}).get('target', (0,0))
+                            if target_pos != (0, 0):
+                                kakao_link = f"https://map.kakao.com/link/from/매물,{lat},{lng}/to/{sub_info['station']},{target_pos[0]},{target_pos[1]}"
+                                st.link_button("🚶 카카오맵 실제 도보 경로 확인", kakao_link, use_container_width=True)
+                        else:
+                            # 데이터가 없을 때의 피드백
+                            st.warning("⚠️ 주변 700m 내에 검색된 지하철역이 없습니다.")
+                    
                     # 네이버 지도 버튼 (기존 유지)
                     st.link_button("📍 네이버 지도에서 위치 확인", f"https://map.naver.com/v5/search/{addr_full}?c={lng},{lat},17,0,0,0,dh", use_container_width=True, type="primary")
                 else: 
@@ -275,17 +266,16 @@ else:
                 try:
                     with st.spinner("지하철 및 주요 시설 스캔 중..."):
                         st.session_state.infra_res_c = cached_commercial(lat, lng)
+                        # 분석 후 리런하여 상단 대시보드 갱신
+                        st.rerun()
                 except Exception as e: st.error(f"오류: {e}")
 
             st.write("") # 간격
 
-            # 2. 결과 출력 (상권 & 입지 요약)
+            # 2. 결과 출력 (상권 & 입지 요약 - 하단 리스트)
             if st.session_state.infra_res_c:
                 c_data = st.session_state.infra_res_c
                 
-                # 2-1. 지하철 정보는 지도 아래에 이미 출력됨 (중복 방지 위해 여기선 생략 가능하지만, 리스트 가독성을 위해 유지도 무방)
-                # 여기서는 시설 리스트와 앵커만 보여줌
-
                 # 2-2. 인근 주변 시설 리스트 (표 형태)
                 st.markdown("##### 📍 인근 주변 시설 (300m 이내)")
                 fac_df = c_data.get('facilities')
