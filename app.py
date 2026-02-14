@@ -1,6 +1,6 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.29.0)
-# Feature: Single Button UI, Simplified Report, Demand Logic Removed
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.29.1)
+# Feature: Precision Map Search, Simplified UI, Kakao Walking Link
 
 import streamlit as st
 import pandas as pd
@@ -9,12 +9,12 @@ import math
 import core_engine as engine  # [Core Engine v24.24.3]
 import map_service as map_api # [Map Service v24.23.7]
 import styles                 # [Style Module v24.23.7]
-import infra_engine           # [Infra Engine v24.28.0]
+import infra_engine           # [Infra Engine v24.28.1]
 
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
-st.set_page_config(page_title="범공인 Pro (v24.29.0)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="범공인 Pro (v24.29.1)", layout="wide", initial_sidebar_state="expanded")
 styles.apply_custom_css()
 
 # 상태 변수 초기화
@@ -42,7 +42,7 @@ def sess(key): return st.session_state[key]
 # ==============================================================================
 @st.cache_data(ttl=3600, show_spinner=False)
 def cached_commercial(lat, lng):
-    # v24.28.0: 통합 상권 분석 (리스트형 엔진)
+    # v24.28.1: 통합 상권 분석 (리스트형 + 하버사인 거리)
     return infra_engine.get_commercial_analysis(lat, lng)
 
 # ==============================================================================
@@ -142,7 +142,7 @@ with st.sidebar:
 # ==============================================================================
 st.title("🏙️ 범공인 매물장 (Pro)")
 
-# [v24.28.0] Fragment 잠시 해제 (안전성 우선)
+# [v24.29.1] Fragment 잠시 해제 (안전성 우선)
 # @st.fragment
 def main_list_view():
     # --------------------------------------------------------------------------
@@ -183,7 +183,7 @@ def main_list_view():
                 if map_img: st.image(map_img, use_column_width=True)
                 else: st.warning("지도 로드 실패")
                 
-                # [네이버 지도 연동 - v24.28.1 주소 기준]
+                # [네이버 지도 연동 - v24.29.1 주소 검색 정밀화]
                 st.link_button("📍 네이버 지도에서 위치 확인", f"https://map.naver.com/v5/search/{addr_full}?c={lng},{lat},17,0,0,0,dh", use_container_width=True, type="primary")
             else: st.warning("위치 확인 불가")
 
@@ -229,14 +229,13 @@ def main_list_view():
                     st.session_state.selected_item = None; st.cache_data.clear(); st.rerun()
                 else: st.error(msg)
         
-        # [INFRA ANALYSIS - V24.29.0 SINGLE BUTTON UI]
+        # [INFRA ANALYSIS - V24.29.1 SIMPLIFIED & KAKAO WALK LINK]
         st.markdown("---")
-        # 헤더 삭제됨
         
         if not (lat and lng):
             st.error("⚠️ 좌표 정보가 없어 분석할 수 없습니다.")
         else:
-            # 1. 단일 버튼 (전폭)
+            # 1. 단일 버튼 (입지요약)
             if st.button("📊 입지요약", use_container_width=True):
                 try:
                     with st.spinner("지하철 및 주요 시설 스캔 중..."):
@@ -245,18 +244,24 @@ def main_list_view():
 
             st.write("") # 간격
 
-            # 2. 결과 출력 (상권 & 입지 요약)
+            # 2. 결과 출력
             if st.session_state.infra_res_c:
                 c_data = st.session_state.infra_res_c
                 
-                # 2-1. 지하철 역세권 결론
+                # 2-1. 지하철 역세권 결론 & 카카오 도보 경로
                 sub = c_data.get('subway', {})
                 if sub.get('station') and sub['station'] != "정보 없음":
                     st.success(f"**🚆 {sub['station']} {sub.get('exit','')}** | 도보 약 {sub['walk']}분 ({sub['dist']}m)")
+                    
+                    # [카카오 도보 경로 버튼 v24.29.1]
+                    s_coords = sub.get('coords', {}).get('target')
+                    if s_coords and s_coords != (0, 0):
+                        s_lat, s_lng = s_coords
+                        st.link_button("🚶 카카오맵 도보 경로 확인", f"https://map.kakao.com/link/from/매물,{lat},{lng}/to/{sub['station']},{s_lat},{s_lng}", use_container_width=True)
                 else:
                     st.warning("🚆 반경 700m 내 유효한 지하철역 정보 없음")
 
-                # 2-2. 주변 10대 생활 시설 리스트 (표 형태)
+                # 2-2. 인근 주변 시설 리스트 (표 형태)
                 st.markdown("##### 📍 인근 주변 시설 (300m 이내)")
                 fac_df = c_data.get('facilities')
                 if fac_df is not None and not fac_df.empty:
@@ -513,7 +518,7 @@ def main_list_view():
 
         elif st.session_state.action_status == 'delete_confirm':
             with st.status(f"🗑️ 삭제 중...", expanded=True):
-                st.error("복구 불가"); 
+                st.error("복구 불가"); 
                 if st.button("확인", key="conf_del", type="primary"):
                     _, msg, _ = engine.execute_transaction("delete", selected_rows, cur_tab)
                     st.success(msg); time.sleep(1); del st.session_state.df_main; engine.safe_reset()
