@@ -1,6 +1,6 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.29.1)
-# Feature: Precision Map Search, Simplified UI, Kakao Walking Link
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.29.1 Hotfix)
+# Feature: Precision Map Search, Simplified UI, Kakao Walking Link, Whitespace Fixed
 
 import streamlit as st
 import pandas as pd
@@ -459,6 +459,7 @@ def main_list_view():
         st.divider()
         if st.button("💾 변경사항 저장 (서버 반영)", type="primary", use_container_width=True, key="btn_save"):
             with st.status("💾 저장 중...", expanded=True) as status:
+                # [수리된 액션 바 코드] - 특수 공백 제거
                 save_df = edited_df.drop(columns=['🔍'], errors='ignore')
                 success, msg, debug = engine.save_updates_to_sheet(save_df, st.session_state.df_main, st.session_state.current_sheet)
                 if success:
@@ -517,11 +518,14 @@ def main_list_view():
                     st.success(msg); time.sleep(1); st.session_state.action_status = None
 
         elif st.session_state.action_status == 'delete_confirm':
-            with st.status(f"🗑️ 삭제 중...", expanded=True):
-                st.error("복구 불가"); 
+            with st.status("🗑️ 삭제 중...", expanded=True):
+                st.error("복구 불가")
                 if st.button("확인", key="conf_del", type="primary"):
                     _, msg, _ = engine.execute_transaction("delete", selected_rows, cur_tab)
-                    st.success(msg); time.sleep(1); del st.session_state.df_main; engine.safe_reset()
+                    st.success(msg)
+                    time.sleep(1)
+                    del st.session_state.df_main
+                    engine.safe_reset()
 
     with st.container(): st.write(""); st.write("")
 
