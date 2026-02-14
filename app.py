@@ -1,6 +1,6 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.30.6 Indentation Fix)
-# Feature: Subway Quick Dashboard, Action Bar Safety Logic
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.31.0 Clean Restore)
+# Feature: Clean UI Restore, Naver Map Only, Stable Logic
 
 import streamlit as st
 import pandas as pd
@@ -14,7 +14,7 @@ import infra_engine           # [Infra Engine v24.30.1]
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
-st.set_page_config(page_title="범공인 Pro (v24.30.6)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="범공인 Pro (v24.31.0)", layout="wide", initial_sidebar_state="expanded")
 styles.apply_custom_css()
 
 # 상태 변수 초기화
@@ -25,7 +25,7 @@ if 'page_num' not in st.session_state: st.session_state.page_num = 1
 if 'selected_item' not in st.session_state: st.session_state.selected_item = None 
 if 'zoom_level' not in st.session_state: st.session_state.zoom_level = 16 
 
-# 인프라 분석 결과 보존을 위한 상태 변수 초기화 (단일 버튼 체제)
+# 인프라 분석 결과 보존을 위한 상태 변수 초기화
 if 'infra_res_c' not in st.session_state: st.session_state.infra_res_c = None 
 if 'last_analyzed_id' not in st.session_state: st.session_state.last_analyzed_id = None
 
@@ -142,8 +142,6 @@ with st.sidebar:
 # ==============================================================================
 st.title("🏙️ 범공인 매물장 (Pro)")
 
-# [v24.30.0] Fragment 잠시 해제 (안전성 우선)
-# @st.fragment
 def main_list_view():
     # --------------------------------------------------------------------------
     # [DETAIL VIEW] Edit Mode with Map & Infra
@@ -178,48 +176,19 @@ def main_list_view():
                 st.rerun()
             
             lat, lng = map_api.get_naver_geocode(addr_full)
+            
+            # [v24.31.0] 클린 복구 버전: 지하철 대시보드 및 카카오 링크 완전 삭제
             if lat and lng:
                 map_img = map_api.fetch_map_image(lat, lng, zoom_level=st.session_state.zoom_level)
-                
-                # [v24.30.0] 지도 및 하단 지하철 대시보드 통합 출력
                 if map_img: 
                     st.image(map_img, use_column_width=True)
-                    
-                    # --- 🚆 지도 직후 지하철 퀵 대시보드 (Smart Dashboard) ---
-                    if st.session_state.infra_res_c:
-                        infra_data = st.session_state.infra_res_c
-                        sub_info = infra_data.get('subway', {})
-                        
-                        if sub_info.get('station') and sub_info['station'] != "정보 없음":
-                            # [v24.30.6] 들여쓰기 교정 및 뺑뺑이 제거 버전
-                            # 1. 시간을 정수로 반올림하고 0분 방지 처리
-                            display_walk = int(round(sub_info['walk']))
-                            if display_walk == 0: display_walk = 1 
+                    # 사장님 속 썩이던 지하철 정보와 카카오 버튼 구역을 통째로 들어냈습니다.
 
-                            # 2. 역 명칭과 출구 사이 공백 정리
-                            station_display = f"{sub_info['station']} {sub_info.get('exit', '')}".strip()
-
-                            # 3. 요약 바 출력
-                            st.info(f"🚆 **{station_display}** | 도보 약 **{display_walk}분**")
-
-                            # 4. 수치 메트릭 카드
-                            m1, m2 = st.columns(2)
-                            m1.metric("실제 이동 거리", f"{sub_info['dist']}m")
-                            m2.metric("정밀 도보 시간", f"{display_walk}분")
-                            
-                            # 5. 카카오맵 연동 버튼
-                            target_pos = sub_info.get('coords', {}).get('target', (0,0))
-                            if target_pos != (0, 0):
-                                kakao_link = f"https://map.kakao.com/link/from/매물,{lat},{lng}/to/{sub_info['station']},{target_pos[0]},{target_pos[1]}"
-                                st.link_button("🚶 카카오맵 실제 도보 경로 확인", kakao_link, use_container_width=True)
-                        else:
-                            st.warning("⚠️ 주변 700m 내에 검색된 지하철역이 없습니다.")
-                    
-                    # 네이버 지도 버튼 (기존 유지)
-                    st.link_button("📍 네이버 지도에서 위치 확인", f"https://map.naver.com/v5/search/{addr_full}?c={lng},{lat},17,0,0,0,dh", use_container_width=True, type="primary")
-                else: 
-                    st.warning("지도 로드 실패")
-            else: st.warning("위치 확인 불가")
+                # 네이버 지도 버튼 하나만 깔끔하고 큼직하게 남겼습니다.
+                naver_url = f"https://map.naver.com/v5/search/{addr_full}?c={lng},{lat},17,0,0,0,dh"
+                st.link_button("📍 네이버 지도에서 위치 확인 (공식)", naver_url, use_container_width=True, type="primary")
+            else: 
+                st.warning("위치 확인 불가")
 
         st.divider()
         with st.form("edit_form"):
@@ -284,6 +253,16 @@ def main_list_view():
             if st.session_state.infra_res_c:
                 c_data = st.session_state.infra_res_c
                 
+                # 2-1. 지하철 정보 (대시보드는 삭제되었으므로 텍스트로만 간단히 안내하거나 생략 가능)
+                # 여기서는 텍스트로 간결하게 표시
+                sub = c_data.get('subway', {})
+                if sub.get('station') and sub['station'] != "정보 없음":
+                     # [v24.31.0] 지하철 정보 텍스트 복구 (대시보드 대신)
+                     # 시간 정수 반올림
+                     w_min = int(round(sub['walk']))
+                     if w_min == 0: w_min = 1
+                     st.success(f"**🚆 {sub['station']} {sub.get('exit', '')}** | 도보 약 {w_min}분 ({sub['dist']}m)")
+
                 # 2-2. 인근 주변 시설 리스트 (표 형태)
                 st.markdown("##### 📍 인근 주변 시설 (300m 이내)")
                 fac_df = c_data.get('facilities')
@@ -490,7 +469,7 @@ def main_list_view():
                     st.cache_data.clear(); st.rerun()
                 else: st.error(msg)
     
-    # --- UNIVERSAL ACTION BAR LOGIC REPAIR ---
+    # --- UNIVERSAL ACTION BAR ---
     # [v24.30.0] 액션 바 로직 정밀 분리 (이동/복구/삭제 안전장치)
     st.divider()
     if len(selected_rows) > 0:
