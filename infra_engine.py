@@ -82,15 +82,14 @@ def _get_pedestrian_route(origin_lng, origin_lat, dest_lng, dest_lat):
     return int(line_dist * 1.3), round((line_dist * 1.3) / 67, 1)
 
 # ==========================================
-# 3. 핵심 분석 함수 (v24.30.1 수술 적용)
+# 3. 핵심 분석 함수 (v24.30.7 수술 적용)
 # ==========================================
 
 def get_commercial_analysis(lat, lng):
     """
-    [통합 상권 분석]
-    1. 지하철역 분석 (필터 해제 + 실제 경로 기반)
-    2. 주변 10대 필수 시설 리스트
-    3. Top 10 앵커 브랜드 스캔
+    [v24.30.7] 정밀 거리 보정판
+    1. 지하철역 분석 (카카오 API 직접 거리 사용)
+    2. 주변 시설 및 앵커 브랜드 스캔
     """
     result = {
         "subway": {
@@ -104,38 +103,36 @@ def get_commercial_analysis(lat, lng):
     try:
         if not lat or not lng: return result
 
-        # [수술] 지하철 필터 해제: SW8 그룹의 모든 결과를 수용함
-        subways_params = {"category_group_code": "SW8", "x": lng, "y": lat, "radius": 700, "sort": "distance"}
-        subways = _call_kakao_local("category", subways_params) 
+        # [수술] 지하철 필터 해제 및 검색
+        sub_params = {"category_group_code": "SW8", "x": lng, "y": lat, "radius": 700, "sort": "distance"}
+        subways = _call_kakao_local("category", sub_params)
 
         if subways:
             target_node = subways[0]
             name = target_node.get('place_name', '').split()[0]
             
-            # 출구 정밀 검색 (반경 800m 확장)
+            # 출구 검색
             exit_params = {"query": f"{name} 출구", "x": lng, "y": lat, "radius": 800, "sort": "distance", "size": 1}
             exits = _call_kakao_local("keyword", exit_params)
             
             final_node = exits[0] if exits else target_node
             exit_info = _extract_exit_number(final_node.get('place_name', ''))
             
-            # 실제 보행자 경로 엔진 가동 (직선거리 로직 calculate_haversine 폐기)
-            # [v24.30.5] 카카오가 이미 계산한 거리를 최우선으로 사용
-api_dist = int(final_node.get('distance', 0))
-if api_dist > 0:
-    dist = api_dist
-    # 분속 67m 기준 (30m면 약 0.5분 -> 1분으로 표시)
-    walk = round(max(0.5, dist / 67), 1) 
-else:
-    # 거리가 없을 때만 보조 로직 작동
-    dist, walk = _get_pedestrian_route(lng, lat, final_node['x'], final_node['y'])
+            # [핵심 수술] 뺑뺑이 방지: 카카오가 이미 계산한 거리를 최우선 사용
+            api_dist = int(final_node.get('distance', 0))
+            if api_dist > 0:
+                dist = api_dist
+                # 30m면 0.44분 -> 1분으로 표시되도록 보정
+                walk = round(max(0.5, dist / 67), 1) 
+            else:
+                dist, walk = _get_pedestrian_route(lng, lat, final_node['x'], final_node['y'])
             
             result["subway"] = {
                 "station": name, "exit": exit_info, "dist": dist, "walk": walk,
                 "coords": {"origin": (lat, lng), "target": (final_node['y'], final_node['x'])}
             }
 
-        # [Step 2] 주변 10대 필수 시설 리스트
+        # [Step 2] 주변 10대 필수 시설 리스트 (기존 유지)
         target_cats = {"편의점": "CS2", "은행": "BK9", "카페": "CE7", "병원": "HP8", "약국": "PM9", "음식점": "FD6"}
         all_places = []
         for cat_name, code in target_cats.items():
@@ -155,7 +152,7 @@ else:
             df_fac = df_fac.sort_values(by="거리(m)").head(10).reset_index(drop=True)
             result["facilities"] = df_fac
 
-        # [Step 3] Top 10 앵커 브랜드 스캔
+        # [Step 3] Top 10 앵커 브랜드 스캔 (기존 유지)
         target_anchors = ["스타벅스", "맥도날드", "올리브영", "다이소", "버거킹", "써브웨이", "메가커피", "파리바게뜨", "컴포즈커피", "배스킨라빈스"]
         anchors_list = []
         for anchor in target_anchors:
