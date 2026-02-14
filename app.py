@@ -1,6 +1,6 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.35.0 Hybrid Layout)
-# Feature: Layout Optimization, Ghost Char Fix, Error Guard
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.35.1 Layout Refine)
+# Feature: 4-Tab Layout, Map Scaling, Error Shielding
 
 import streamlit as st
 import pandas as pd
@@ -15,7 +15,7 @@ import infra_engine           # [Infra Engine v24.30.1]
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
-st.set_page_config(page_title="범공인 Pro (v24.35.0)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="범공인 Pro (v24.35.1)", layout="wide", initial_sidebar_state="expanded")
 styles.apply_custom_css()
 
 # 상태 변수 초기화
@@ -162,8 +162,8 @@ def main_list_view():
 
         addr_full = f"{item.get('지역_구', '')} {item.get('지역_동', '')} {item.get('번지', '')}"
         
-        # [2-Column Layout]
-        col_left, col_right = st.columns([1.2, 1])
+        # [v24.35.1] Layout Ratio 1.5 : 1
+        col_left, col_right = st.columns([1.5, 1])
         
         # --- LEFT COLUMN: MAP ---
         with col_left:
@@ -179,7 +179,8 @@ def main_list_view():
             
             lat, lng = map_api.get_naver_geocode(addr_full)
             if lat and lng:
-                map_img = map_api.fetch_map_image(lat, lng, zoom_level=st.session_state.zoom_level)
+                # [v24.35.1] Map Scaling (PC 2x Height)
+                map_img = map_api.fetch_map_image(lat, lng, zoom_level=st.session_state.zoom_level, height=800)
                 if map_img: st.image(map_img, use_column_width=True)
                 
                 naver_url = f"https://map.naver.com/v5/search/{addr_full}?c={lng},{lat},17,0,0,0,dh"
@@ -189,7 +190,7 @@ def main_list_view():
 
         # --- RIGHT COLUMN: ACTIONS, CONTACT, FORM ---
         with col_right:
-            # 1. 퀵 액션 버튼
+            # 1. 퀵 액션
             cur_tab = st.session_state.current_sheet
             base_label = "매매" if "매매" in cur_tab else "임대"
             
@@ -239,13 +240,13 @@ def main_list_view():
                 else:
                     st.caption("🚫 등록된 연락처 번호가 없습니다.")
 
-            # 3. 탭 (수정 폼 & 브리핑)
+            # [v24.35.1] 4-Tab Architecture
             st.write("")
-            tab1, tab2, tab3 = st.tabs(["📝 기본 수정", "📑 전체 정보", "💬 카톡 문구"])
+            tab1, tab2, tab3, tab4 = st.tabs(["📝 기본 정보", "📑 상세(1)", "📁 상세(2)", "💬 카톡 문구"])
             
-            # TAB 1: 기본 수정
+            # --- TAB 1: CORE INFO ---
             with tab1:
-                with st.form("edit_form_basic"):
+                with st.form("edit_form_core"):
                     c1, c2 = st.columns(2)
                     new_cat = c1.text_input("**구분**", value=item.get('구분', ''))
                     new_name = c2.text_input("**건물명**", value=item.get('건물명', ''))
@@ -285,32 +286,46 @@ def main_list_view():
                             st.session_state.selected_item = None; st.cache_data.clear(); st.rerun()
                         else: st.error(msg)
 
-            # TAB 2: 전체 정보 (Full-Loop)
+            # --- TAB 2: DETAIL GROUP 1 ---
             with tab2:
-                with st.form("edit_form_full"):
-                    # [v24.35.0] Clean Field List (시스템 컬럼 제외)
-                    exclude_cols = ['구분','건물명','매매가','수익률','대지면적','연면적','보증금','월차임','권리금','관리비','면적','층','내용','비고','선택','IronID','임대인','연락처','연락처2','지역_구','지역_동','번지', '층_clean', 'Unnamed: 0', '_match_sig']
-                    extra_cols = [c for c in item.index if c not in exclude_cols]
+                with st.form("edit_form_d1"):
+                    cols_d1 = ['호실', '현업종', '층고', '주차', 'E/V', '화장실', '특이사항', '사진']
+                    extras_d1 = {}
+                    for col in cols_d1:
+                        extras_d1[col] = st.text_input(col, value=str(item.get(col, '')).replace('nan',''))
                     
-                    updated_extras = {}
-                    if extra_cols:
-                        st.caption("※ 기본 탭에 없는 나머지 모든 정보를 수정합니다.")
-                        for ecol in extra_cols:
-                            updated_extras[ecol] = st.text_input(ecol, value=str(item.get(ecol, '')).replace('nan',''))
-                    else:
-                        st.info("추가 수정할 항목이 없습니다.")
-
-                    if st.form_submit_button("💾 전체 정보 저장", type="primary", use_container_width=True):
+                    if st.form_submit_button("💾 상세(1) 저장", type="primary", use_container_width=True):
                          updated_data = item.copy()
-                         updated_data.update(updated_extras)
+                         updated_data.update(extras_d1)
                          success, msg = engine.update_single_row(updated_data, st.session_state.current_sheet)
-                         if success:
-                            st.success(msg); time.sleep(1.0); del st.session_state.df_main
-                            st.session_state.selected_item = None; st.cache_data.clear(); st.rerun()
+                         if success: st.success(msg); time.sleep(1.0); del st.session_state.df_main; st.rerun()
                          else: st.error(msg)
 
-            # TAB 3: 카톡 브리핑
+            # --- TAB 3: DETAIL GROUP 2 (ADS/ETC) ---
             with tab3:
+                with st.form("edit_form_d2"):
+                    # 자동 생성 필드 (나머지)
+                    exclude_cols = ['구분','건물명','매매가','수익률','대지면적','연면적','보증금','월차임','권리금','관리비','면적','층','내용','비고','선택','IronID','임대인','연락처','연락처2','지역_구','지역_동','번지', '층_clean', 'Unnamed: 0', '_match_sig']
+                    # 상세1에 쓴 것도 제외
+                    exclude_cols += ['호실', '현업종', '층고', '주차', 'E/V', '화장실', '특이사항', '사진']
+                    
+                    extra_cols = [c for c in item.index if c not in exclude_cols]
+                    extras_d2 = {}
+                    
+                    if extra_cols:
+                        for ecol in extra_cols:
+                            extras_d2[ecol] = st.text_input(ecol, value=str(item.get(ecol, '')).replace('nan',''))
+                    else: st.info("추가 항목 없음")
+
+                    if st.form_submit_button("💾 상세(2) 저장", type="primary", use_container_width=True):
+                         updated_data = item.copy()
+                         updated_data.update(extras_d2)
+                         success, msg = engine.update_single_row(updated_data, st.session_state.current_sheet)
+                         if success: st.success(msg); time.sleep(1.0); del st.session_state.df_main; st.rerun()
+                         else: st.error(msg)
+
+            # --- TAB 4: KAKAO BRIEFING ---
+            with tab4:
                 sub = st.session_state.infra_res_c.get('subway', {}) if st.session_state.infra_res_c else {}
                 walk_txt = ""
                 if sub.get('station') and sub['station'] != "정보 없음":
@@ -347,7 +362,7 @@ def main_list_view():
                 st.caption("▲ Copy 버튼으로 복사")
 
         # ----------------------------------------------------------------------
-        # [v24.35.0] 하단 통합 분석 섹션 (최하단 배치 - 하이브리드 레이아웃)
+        # [v24.35.1] 하단 통합 분석 섹션 (Wide & Safe)
         # ----------------------------------------------------------------------
         st.divider()
         if lat and lng:
@@ -367,16 +382,14 @@ def main_list_view():
                     if w_min == 0: w_min = 1
                     st.success(f"**🚆 {sub['station']} {sub.get('exit', '')}** | 도보 약 {w_min}분 ({sub['dist']}m)")
                 
-                # [v24.35.0] TypeError Safe Guard & Sort Lock
+                # [Safe Guard] astype(str) for compatibility
                 c_a, c_b = st.columns(2)
                 with c_a:
                     st.markdown("##### 📍 인근 주변 시설 (300m 이내)")
                     fac_df = c_data.get('facilities')
                     if fac_df is not None and not fac_df.empty:
-                        # 컬럼명 정제 (Stripping)
-                        fac_df.columns = [str(c).strip() for c in fac_df.columns]
                         st.dataframe(
-                            fac_df, 
+                            fac_df.astype(str), 
                             hide_index=True, 
                             use_container_width=True,
                             column_config={col: st.column_config.Column(sortable=False) for col in fac_df.columns}
@@ -387,10 +400,8 @@ def main_list_view():
                     st.markdown("##### 🏆 상권 Top 10 브랜드 (1km)")
                     anchor_df = c_data.get('anchors')
                     if anchor_df is not None and not anchor_df.empty:
-                        # 컬럼명 정제 (Stripping)
-                        anchor_df.columns = [str(c).strip() for c in anchor_df.columns]
                         st.dataframe(
-                            anchor_df, 
+                            anchor_df.astype(str), 
                             hide_index=True, 
                             use_container_width=True,
                             column_config={col: st.column_config.Column(sortable=False) for col in anchor_df.columns}
