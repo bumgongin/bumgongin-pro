@@ -1,6 +1,6 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.27.1)
-# Feature: Visualization Bug Fix, Optimized UI Layout, Map Link Placement
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.27.2)
+# Feature: Visualization Invincible Logic, Metric Badges, Enhanced Layout
 
 import streamlit as st
 import pandas as pd
@@ -9,12 +9,12 @@ import math
 import core_engine as engine  # [Core Engine v24.24.3]
 import map_service as map_api # [Map Service v24.23.7]
 import styles                 # [Style Module v24.23.7]
-import infra_engine           # [Infra Engine v24.27.1]
+import infra_engine           # [Infra Engine v24.27.2]
 
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
-st.set_page_config(page_title="범공인 Pro (v24.27.1)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="범공인 Pro (v24.27.2)", layout="wide", initial_sidebar_state="expanded")
 styles.apply_custom_css()
 
 # 상태 변수 초기화
@@ -43,7 +43,7 @@ def sess(key): return st.session_state[key]
 # ==============================================================================
 @st.cache_data(ttl=3600, show_spinner=False)
 def cached_commercial(lat, lng):
-    # v24.27.1: 통합 상권 분석 (지하철 포함 + 하이브리드 검색)
+    # v24.27.2: 통합 상권 분석 (지하철 포함 + 하이브리드 검색)
     return infra_engine.get_commercial_analysis(lat, lng)
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -189,8 +189,8 @@ def main_list_view():
                 if map_img: st.image(map_img, use_column_width=True)
                 else: st.warning("지도 로드 실패")
                 
-                # [카카오맵 연동 - 지도 바로 아래 배치 v24.27.1]
-                st.link_button("📍 카카오맵에서 위치 크게보기", f"https://map.kakao.com/link/map/{item.get('건물명', '매물')},{lat},{lng}", use_container_width=True)
+                # [카카오맵 연동 - 지도 바로 아래 배치, Primary Style]
+                st.link_button("📍 카카오맵에서 실시간 로드뷰 확인", f"https://map.kakao.com/link/map/{item.get('건물명', '매물')},{lat},{lng}", use_container_width=True, type="primary")
             else: st.warning("위치 확인 불가")
 
         st.divider()
@@ -235,7 +235,7 @@ def main_list_view():
                     st.session_state.selected_item = None; st.cache_data.clear(); st.rerun()
                 else: st.error(msg)
         
-        # [INFRA ANALYSIS - V24.27.1 FIXED & ENHANCED]
+        # [INFRA ANALYSIS - V24.27.2 INVINCIBLE VISUALIZATION]
         st.markdown("---")
         st.subheader("🏗️ 주변 인프라 분석 (반경 500~700m)")
         
@@ -265,27 +265,39 @@ def main_list_view():
 
             # 2. 결과 출력 (Session State 기반)
             
-            # [A. 상권 & 역세권 결과]
+            # [A. 상권 & 역세권 결과 출력부]
             if st.session_state.infra_res_c:
                 c_data = st.session_state.infra_res_c
-                sub = c_data.get('subway', {})
                 
-                # [지하철 강조 뱃지]
+                # 1. 지하철 역세권 뱃지 (최상단 고정)
+                sub = c_data.get('subway', {})
                 if sub.get('station') and sub['station'] != "정보 없음":
-                    st.success(f"**🚆 가장 가까운 역: {sub['station']} {sub.get('exit','')}** (직선 {sub['dist']}m / 도보 약 {sub['walk']}분)")
+                    st.success(f"**🚆 {sub['station']} {sub.get('exit','')}** | 도보 약 {sub['walk']}분 ({sub['dist']}m)")
                 else:
                     st.warning("🚆 반경 700m 내 지하철역 없음")
                 
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.markdown("##### 📈 10대 업종 밀집도")
-                    # [시각화 버그 수정] pd.Series로 변환하여 차트 데이터 누락 방지
-                    chart_data = pd.Series(c_data['counts'])
-                    st.bar_chart(chart_data, height=350, color="#FF8C00") # 오렌지색
-                
-                with c2:
-                    st.markdown("##### 🏆 상권 Top 10 브랜드 리포트")
-                    st.dataframe(c_data['anchors'], hide_index=True, use_container_width=True)
+                # 2. 10대 업종 수치 뱃지 (차트 위 강제 출력)
+                st.markdown("##### 📊 주변 업종 상세 수치")
+                counts = c_data.get('counts', {})
+                if counts:
+                    # 5개씩 2줄로 숫자 먼저 보여주기
+                    m_cols = st.columns(5)
+                    for i, (name, val) in enumerate(counts.items()):
+                        m_cols[i % 5].metric(name, f"{val}개")
+                    
+                    st.write("") # 간격
+                    
+                    # 3. 차트와 앵커시설 2열 배치
+                    chart_col, anchor_col = st.columns([1.2, 1])
+                    with chart_col:
+                        st.markdown("##### 📈 밀집도 그래프")
+                        # DataFrame으로 형식을 완전히 굳혀서 전달 (수치 실종 방지)
+                        df_chart = pd.DataFrame.from_dict(counts, orient='index', columns=['개수'])
+                        st.bar_chart(df_chart, height=400, color="#FF8C00") # 오렌지색
+                    
+                    with anchor_col:
+                        st.markdown("##### 🏆 브랜드 Top 10")
+                        st.dataframe(c_data['anchors'], hide_index=True, use_container_width=True)
 
             # [B. 배후 수요 결과]
             if st.session_state.infra_res_d is not None:
@@ -297,7 +309,7 @@ def main_list_view():
                 school_cnt = len(d_df[d_df['구분'].str.contains('교육')]) if not d_df.empty and '구분' in d_df.columns else 0
                 
                 if office_cnt > 0 or school_cnt > 0:
-                    st.info(f"🏠 **인근 배후수요 요약**: 업무시설 {office_cnt}곳 / 교육시설 {school_cnt}곳 감지")
+                    st.info(f"🏠 **배후수요**: 업무({office_cnt}) / 교육({school_cnt})")
                 else:
                     st.info("🏠 **인근 배후수요**: 주요 집객 시설 없음")
 
