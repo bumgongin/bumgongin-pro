@@ -1,6 +1,6 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.33.1 Phase 2)
-# Feature: Briefing Order Fix (Bo/Wol/Gwan/Kwon), Clean UI, Stable Logic
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.33.2 Phase 3)
+# Feature: Mobile Table Sort Lock, Briefing Fix, Smart Buttons
 
 import streamlit as st
 import pandas as pd
@@ -14,7 +14,7 @@ import infra_engine           # [Infra Engine v24.30.1]
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
-st.set_page_config(page_title="범공인 Pro (v24.33.1)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="범공인 Pro (v24.33.2)", layout="wide", initial_sidebar_state="expanded")
 styles.apply_custom_css()
 
 # 상태 변수 초기화
@@ -269,7 +269,7 @@ def main_list_view():
                         st.session_state.selected_item = None; st.cache_data.clear(); st.rerun()
                     else: st.error(msg)
             
-            # 카톡 브리핑 생성기 (순서 교정 완료)
+            # 카톡 브리핑 생성기
             st.write("")
             with st.expander("💬 카톡 브리핑 문구 생성 (복사용)", expanded=True):
                 sub = st.session_state.infra_res_c.get('subway', {}) if st.session_state.infra_res_c else {}
@@ -335,19 +335,30 @@ def main_list_view():
                     if w_min == 0: w_min = 1
                     st.success(f"**🚆 {sub['station']} {sub.get('exit', '')}** | 도보 약 {w_min}분 ({sub['dist']}m)")
                 
+                # [v24.33.2 Phase 3] 모바일 표 정렬 잠금 처리 (행 밀림 방지)
                 c_a, c_b = st.columns(2)
                 with c_a:
                     st.markdown("##### 📍 인근 주변 시설 (300m 이내)")
                     fac_df = c_data.get('facilities')
                     if fac_df is not None and not fac_df.empty:
-                        st.dataframe(fac_df, hide_index=True, use_container_width=True)
+                        st.dataframe(
+                            fac_df, 
+                            hide_index=True, 
+                            use_container_width=True,
+                            column_config={col: st.column_config.Column(sortable=False) for col in fac_df.columns}
+                        )
                     else: st.caption("데이터 없음")
                 
                 with c_b:
                     st.markdown("##### 🏆 상권 Top 10 브랜드 (1km)")
                     anchor_df = c_data.get('anchors')
                     if anchor_df is not None and not anchor_df.empty:
-                        st.dataframe(anchor_df, hide_index=True, use_container_width=True)
+                        st.dataframe(
+                            anchor_df, 
+                            hide_index=True, 
+                            use_container_width=True,
+                            column_config={col: st.column_config.Column(sortable=False) for col in anchor_df.columns}
+                        )
         return
 
     # --------------------------------------------------------------------------
