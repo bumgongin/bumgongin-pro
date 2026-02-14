@@ -42,6 +42,10 @@ def _extract_exit_number(place_name):
     return ""
 
 def _calculate_walking_data(origin_x, origin_y, dest_x, dest_y):
+    """
+    [Legacy] 더 이상 지하철 분석에는 사용되지 않으나, 
+    추후 정밀 경로 분석이 필요할 경우를 위해 남겨둠.
+    """
     if not (origin_x and origin_y and dest_x and dest_y): return 0, 0
     url = "https://apis-navi.kakaomobility.com/v1/directions"
     params = {"origin": f"{origin_x},{origin_y}", "destination": f"{dest_x},{dest_y}", "priority": "RECOMMEND", "car_type": 1}
@@ -62,26 +66,26 @@ def _calculate_walking_data(origin_x, origin_y, dest_x, dest_y):
     except Exception: return 0, 0
 
 # ==========================================
-# 3. 핵심 분석 함수 (v24.28.0 리스트형 엔진)
+# 3. 핵심 분석 함수 (v24.28.1 수정판)
 # ==========================================
 
 def get_commercial_analysis(lat, lng):
     """
     [통합 상권 분석]
-    1. 지하철역 정밀 분석 (기존 유지)
-    2. 주변 10대 필수 시설 리스트 (신규: 거리순 정렬)
-    3. Top 10 앵커 브랜드 스캔 (기존 유지)
+    1. 지하철역 정밀 분석 (직선거리 + 보정계수 1.25 적용)
+    2. 주변 10대 필수 시설 리스트
+    3. Top 10 앵커 브랜드 스캔
     """
     result = {
         "subway": {"station": "정보 없음", "exit": "", "dist": 0, "walk": 0},
-        "facilities": pd.DataFrame(columns=['장소명', '업종', '거리(m)', '도보(분)']), # 신규 리스트
+        "facilities": pd.DataFrame(columns=['장소명', '업종', '거리(m)', '도보(분)']),
         "anchors": pd.DataFrame(columns=["브랜드", "지점명", "거리(m)", "도보(분)"])
     }
 
     try:
         if not lat or not lng: return result
 
-        # [Step 1] 지하철역 분석
+        # [Step 1] 지하철역 분석 (로직 수정됨)
         sub_params = {"category_group_code": "SW8", "x": lng, "y": lat, "radius": 700, "sort": "distance"}
         subways_raw = _call_kakao_local("category", sub_params)
         subways = [s for s in subways_raw if '지하철,전철' in s.get('category_name', '')]
@@ -91,17 +95,21 @@ def get_commercial_analysis(lat, lng):
             clean_name = re.sub(r'\(.*\)', '', nearest.get('place_name', '')).strip()
             station_name = clean_name.split()[0]
             
-            # 출구 및 도보
+            # 출구 검색
             exit_params = {"query": f"{station_name} 출구", "x": lng, "y": lat, "radius": 700, "sort": "distance"}
             exits = _call_kakao_local("keyword", exit_params)
+            
+            # 타겟 설정 (출구가 있으면 출구 우선, 없으면 역 자체)
             target = exits[0] if exits else nearest
             exit_n = _extract_exit_number(target.get('place_name', '')) if exits else ""
             
-            d, t = _calculate_walking_data(lng, lat, target.get('x'), target.get('y'))
+            # [수정된 로직] API 거리값 사용 및 보정 공식 적용
+            d = int(target.get('distance', 0)) # API가 제공하는 직선 거리
+            t = round((d * 1.25) / 67, 1)      # 굴곡 보정(1.25배) 후 분속 67m로 나눔
+            
             result["subway"] = {"station": station_name, "exit": exit_n, "dist": d, "walk": t}
 
-        # [Step 2] 주변 10대 필수 시설 리스트 (New Logic)
-        # 검색 대상: 편의점, 은행, 카페, 병원, 약국, 음식점 (반경 300m)
+        # [Step 2] 주변 10대 필수 시설 리스트
         target_cats = {
             "편의점": "CS2", "은행": "BK9", "카페": "CE7", 
             "병원": "HP8", "약국": "PM9", "음식점": "FD6"
@@ -109,7 +117,6 @@ def get_commercial_analysis(lat, lng):
         
         all_places = []
         for cat_name, code in target_cats.items():
-            # 각 카테고리별 상위 5개씩만 가볍게 수집
             p = {"category_group_code": code, "x": lng, "y": lat, "radius": 300, "sort": "distance", "size": 5}
             items = _call_kakao_local("category", p)
             for item in items:
@@ -120,7 +127,6 @@ def get_commercial_analysis(lat, lng):
                     "도보(분)": round(int(item.get('distance', 0)) / 67, 1)
                 })
         
-        # 거리순 정렬 후 상위 10개 추출
         if all_places:
             df_fac = pd.DataFrame(all_places)
             df_fac = df_fac.sort_values(by="거리(m)").head(10).reset_index(drop=True)
@@ -163,7 +169,6 @@ def get_demand_analysis(lat, lng):
         demand = []
         seen = set()
         
-        # 오피스, 교육, 행정 통합 검색
         targets = [
             (["지식산업센터", "오피스", "빌딩"], "업무시설", 500, "keyword"),
             ({"학교": "SC4", "학원": "AC5"}, "교육", 500, "category"),
