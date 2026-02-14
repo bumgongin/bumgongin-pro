@@ -1,6 +1,6 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.32.1 Patch)
-# Feature: Enhanced Briefing Generator, Safe Row Selection
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.32.2 Hotfix)
+# Feature: Ghost Whitespace Removal (U+00A0 Fix), Stable Filter Logic
 
 import streamlit as st
 import pandas as pd
@@ -14,7 +14,7 @@ import infra_engine           # [Infra Engine v24.30.1]
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
-st.set_page_config(page_title="범공인 Pro (v24.32.1)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="범공인 Pro (v24.32.2)", layout="wide", initial_sidebar_state="expanded")
 styles.apply_custom_css()
 
 # 상태 변수 초기화
@@ -177,43 +177,46 @@ def main_list_view():
             
             lat, lng = map_api.get_naver_geocode(addr_full)
             
-            # [v24.31.0] 클린 복구 버전: 지하철 대시보드 및 카카오 링크 완전 삭제
+            # [v24.31.0] 클린 복구 버전
             if lat and lng:
                 map_img = map_api.fetch_map_image(lat, lng, zoom_level=st.session_state.zoom_level)
                 if map_img: 
                     st.image(map_img, use_column_width=True)
 
-                # 네이버 지도 버튼 하나만 깔끔하고 큼직하게 남겼습니다.
+                # 네이버 지도 버튼
                 naver_url = f"https://map.naver.com/v5/search/{addr_full}?c={lng},{lat},17,0,0,0,dh"
                 st.link_button("📍 네이버 지도에서 위치 확인 (공식)", naver_url, use_container_width=True, type="primary")
                 
-                # [v24.32.1] 번지수 및 권리금 포함 브리핑 생성기
+                # [v24.32.1] 브리핑 생성기 (안전 로직)
                 st.divider()
                 with st.expander("💬 카톡 브리핑 문구 생성 (복사용)", expanded=True):
-                    # 지하철 도보 정보 가공
                     sub = st.session_state.infra_res_c.get('subway', {}) if st.session_state.infra_res_c else {}
-                    walk_txt = f" ({sub['station']} 도보 {int(round(sub['walk']))}분)" if sub.get('station') and sub['station'] != "정보 없음" else ""
+                    walk_txt = ""
+                    if sub.get('station') and sub['station'] != "정보 없음":
+                        w_min = int(round(sub['walk']))
+                        if w_min == 0: w_min = 1
+                        walk_txt = f" ({sub['station']} 도보 {w_min}분)"
 
                     is_sale = "매매" in st.session_state.current_sheet
-                    # 번지수 포함 주소 조립
                     addr_disp = f"{item.get('지역_구', '')} {item.get('지역_동', '')} {item.get('번지', '')}".strip()
                     
                     if is_sale:
                         price_txt = f"매매 {int(item.get('매매가', 0)):,}만"
                         if item.get('수익률', 0) > 0: price_txt += f" (수익률 {item['수익률']}%)"
                     else:
-                        # 권리금 유무 판단 로직
                         kwon = int(item.get('권리금', 0))
                         kwon_txt = f" / 권 {kwon:,}" if kwon > 0 else " / 권 무"
                         price_txt = f"보 {int(item.get('보증금', 0)):,} / 월 {int(item.get('월차임', 0)):,}{kwon_txt}"
                         if item.get('관리비', 0) > 0: price_txt += f" (관 {int(item['관리비']):,})"
 
-                    # 최종 템플릿 조립
+                    spec_txt = f"{item.get('층', '')}층 / 실 {item.get('면적', 0)}평"
+                    desc_txt = item.get('내용', '상세내용 문의').strip()
+
                     briefing_msg = f"""[범공인 매물 브리핑]
 📍 위치: {addr_disp}{walk_txt}
-🏢 구분: {item.get('구분', '')} ({item.get('층', '')}층 / 실 {item.get('면적', 0)}평)
+🏢 구분: {item.get('구분', '')} ({spec_txt})
 💰 조건: {price_txt}
-📝 특징: {item.get('내용', '상세내용 문의').strip()}"""
+📝 특징: {desc_txt}"""
 
                     st.code(briefing_msg, language=None)
                     st.caption("▲ 우측 상단 Copy 버튼으로 카톡에 붙여넣으세요.")
@@ -263,36 +266,30 @@ def main_list_view():
                     st.session_state.selected_item = None; st.cache_data.clear(); st.rerun()
                 else: st.error(msg)
         
-        # [INFRA ANALYSIS - V24.30.0 SINGLE BUTTON UI]
+        # [INFRA ANALYSIS]
         st.markdown("---")
         
         if not (lat and lng):
             st.error("⚠️ 좌표 정보가 없어 분석할 수 없습니다.")
         else:
-            # 1. 단일 버튼 (입지요약)
             if st.button("📊 입지요약", use_container_width=True):
                 try:
                     with st.spinner("지하철 및 주요 시설 스캔 중..."):
                         st.session_state.infra_res_c = cached_commercial(lat, lng)
-                        # 분석 후 리런하여 상단 대시보드 갱신
                         st.rerun()
                 except Exception as e: st.error(f"오류: {e}")
 
-            st.write("") # 간격
+            st.write("") 
 
-            # 2. 결과 출력 (상권 & 입지 요약 - 하단 리스트)
             if st.session_state.infra_res_c:
                 c_data = st.session_state.infra_res_c
                 
-                # 2-1. 지하철 정보 텍스트 복구 (대시보드 대신)
                 sub = c_data.get('subway', {})
                 if sub.get('station') and sub['station'] != "정보 없음":
-                     # 시간 정수 반올림
-                     w_min = int(round(sub['walk']))
-                     if w_min == 0: w_min = 1
-                     st.success(f"**🚆 {sub['station']} {sub.get('exit', '')}** | 도보 약 {w_min}분 ({sub['dist']}m)")
+                      w_min = int(round(sub['walk']))
+                      if w_min == 0: w_min = 1
+                      st.success(f"**🚆 {sub['station']} {sub.get('exit', '')}** | 도보 약 {w_min}분 ({sub['dist']}m)")
 
-                # 2-2. 인근 주변 시설 리스트 (표 형태)
                 st.markdown("##### 📍 인근 주변 시설 (300m 이내)")
                 fac_df = c_data.get('facilities')
                 if fac_df is not None and not fac_df.empty:
@@ -300,9 +297,8 @@ def main_list_view():
                 else:
                     st.caption("주변 300m 내 주요 생활 시설 데이터 없음")
                 
-                st.write("") # 간격
+                st.write("") 
 
-                # 2-3. 상권 앵커 브랜드 리포트
                 st.markdown("##### 🏆 상권 Top 10 브랜드 리포트 (직선 1km)")
                 anchor_df = c_data.get('anchors')
                 if anchor_df is not None and not anchor_df.empty:
@@ -340,15 +336,15 @@ def main_list_view():
     
     if '면적' in df_filtered.columns and not df_filtered.empty: df_filtered = df_filtered[(df_filtered['면적'] >= st.session_state.min_area) & (df_filtered['면적'] <= st.session_state.max_area)]
     
-    # [v24.28.1 층수 필터링 정규식 복구 - 지하층 포함]
+    # [v24.32.2] 유령 공백 소탕 및 필터 로직 정밀 수리 (Clean Version)
     if '층' in df_filtered.columns and not df_filtered.empty:
         # 1. 층 데이터 정제 (마이너스 기호 포함 추출)
         df_filtered['층_clean'] = df_filtered['층'].astype(str).str.extract(r'(-?\d+)')[0]
         # 2. 숫자로 변환 (결측치는 1층으로 가정)
         df_filtered['층_clean'] = pd.to_numeric(df_filtered['층_clean'], errors='coerce').fillna(1)
-        # 3. 필터 적용
+        # 3. 필터 적용 (불필요한 공백 및 유령 문자 제거 완료)
         df_filtered = df_filtered[
-            (df_filtered['층_clean'] >= st.session_state.min_fl) & 
+            (df_filtered['층_clean'] >= st.session_state.min_fl) & 
             (df_filtered['층_clean'] <= st.session_state.max_fl)
         ]
 
