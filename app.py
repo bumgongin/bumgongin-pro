@@ -1,6 +1,6 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.32.2 Layout Refactor)
-# Feature: 2-Column Detail Layout, Clean UI, Stable Logic
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.32.3 Final Polish)
+# Feature: Quick Actions, Optimized Layout, Data Integrity
 
 import streamlit as st
 import pandas as pd
@@ -14,7 +14,7 @@ import infra_engine           # [Infra Engine v24.30.1]
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
-st.set_page_config(page_title="범공인 Pro (v24.32.2)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="범공인 Pro (v24.32.3)", layout="wide", initial_sidebar_state="expanded")
 styles.apply_custom_css()
 
 # 상태 변수 초기화
@@ -185,41 +185,27 @@ def main_list_view():
                 
                 naver_url = f"https://map.naver.com/v5/search/{addr_full}?c={lng},{lat},17,0,0,0,dh"
                 st.link_button("📍 네이버 지도에서 위치 확인 (공식)", naver_url, use_container_width=True, type="primary")
-                
-                # 분석 버튼 및 결과
-                st.markdown("---")
-                if st.button("📊 입지요약", use_container_width=True):
-                    try:
-                        with st.spinner("지하철 및 주요 시설 스캔 중..."):
-                            st.session_state.infra_res_c = cached_commercial(lat, lng)
-                            st.rerun()
-                    except Exception as e: st.error(f"오류: {e}")
-                
-                st.write("")
-                if st.session_state.infra_res_c:
-                    c_data = st.session_state.infra_res_c
-                    sub = c_data.get('subway', {})
-                    if sub.get('station') and sub['station'] != "정보 없음":
-                        w_min = int(round(sub['walk']))
-                        if w_min == 0: w_min = 1
-                        st.success(f"**🚆 {sub['station']} {sub.get('exit', '')}** | 도보 약 {w_min}분 ({sub['dist']}m)")
-                    
-                    st.markdown("##### 📍 인근 주변 시설 (300m 이내)")
-                    fac_df = c_data.get('facilities')
-                    if fac_df is not None and not fac_df.empty:
-                        st.dataframe(fac_df, hide_index=True, use_container_width=True)
-                    else: st.caption("데이터 없음")
-                    
-                    st.markdown("##### 🏆 상권 Top 10 브랜드 (1km)")
-                    anchor_df = c_data.get('anchors')
-                    if anchor_df is not None and not anchor_df.empty:
-                        st.dataframe(anchor_df, hide_index=True, use_container_width=True)
             else:
                 st.warning("위치 확인 불가")
 
         # --- RIGHT COLUMN: EDIT FORM & BRIEFING ---
         with col_right:
-            st.button("🎊 계약 완료", disabled=True, use_container_width=True)
+            # [v24.32.3] 퀵 액션 버튼 구현
+            cur_tab = st.session_state.current_sheet
+            base_tab = cur_tab.replace("(종료)", "").replace("브리핑", "").strip()
+            base_label = "매매" if "매매" in cur_tab else "임대"
+            
+            q1, q2 = st.columns(2)
+            if q1.button(f"🚩 {base_label} 종료", use_container_width=True):
+                target = f"{base_tab}(종료)"
+                _, msg, _ = engine.execute_transaction("move", pd.DataFrame([item]), cur_tab, target)
+                st.success(msg); time.sleep(1.0); st.session_state.selected_item = None; del st.session_state.df_main; st.rerun()
+                
+            if q2.button(f"🚀 {base_label} 브리핑 이동", use_container_width=True):
+                target = f"{base_tab}브리핑"
+                _, msg, _ = engine.execute_transaction("move", pd.DataFrame([item]), cur_tab, target)
+                st.success(msg); time.sleep(1.0); st.session_state.selected_item = None; del st.session_state.df_main; st.rerun()
+
             st.write("") # 간격
             
             with st.form("edit_form"):
@@ -297,6 +283,38 @@ def main_list_view():
                 st.code(briefing_msg, language=None)
                 st.caption("▲ Copy 버튼으로 복사")
 
+        # [v24.32.3] 하단 통합 분석 섹션
+        st.divider()
+        if lat and lng:
+            if st.button("📊 입지요약", use_container_width=True):
+                try:
+                    with st.spinner("지하철 및 주요 시설 스캔 중..."):
+                        st.session_state.infra_res_c = cached_commercial(lat, lng)
+                        st.rerun()
+                except Exception as e: st.error(f"오류: {e}")
+            
+            st.write("")
+            if st.session_state.infra_res_c:
+                c_data = st.session_state.infra_res_c
+                sub = c_data.get('subway', {})
+                if sub.get('station') and sub['station'] != "정보 없음":
+                    w_min = int(round(sub['walk']))
+                    if w_min == 0: w_min = 1
+                    st.success(f"**🚆 {sub['station']} {sub.get('exit', '')}** | 도보 약 {w_min}분 ({sub['dist']}m)")
+                
+                c_a, c_b = st.columns(2)
+                with c_a:
+                    st.markdown("##### 📍 인근 주변 시설 (300m 이내)")
+                    fac_df = c_data.get('facilities')
+                    if fac_df is not None and not fac_df.empty:
+                        st.dataframe(fac_df, hide_index=True, use_container_width=True)
+                    else: st.caption("데이터 없음")
+                
+                with c_b:
+                    st.markdown("##### 🏆 상권 Top 10 브랜드 (1km)")
+                    anchor_df = c_data.get('anchors')
+                    if anchor_df is not None and not anchor_df.empty:
+                        st.dataframe(anchor_df, hide_index=True, use_container_width=True)
         return
 
     # --------------------------------------------------------------------------
