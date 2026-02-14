@@ -1,6 +1,6 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.34.2 Tabbed Layout)
-# Feature: Tabbed Detail View, Full-Field Fix, Safe DataFrame
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.34.3 Patch)
+# Feature: DataFrame Safe Guard, Field Cleanup, Stable UI
 
 import streamlit as st
 import pandas as pd
@@ -15,7 +15,7 @@ import infra_engine           # [Infra Engine v24.30.1]
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
-st.set_page_config(page_title="범공인 Pro (v24.34.2)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="범공인 Pro (v24.34.3)", layout="wide", initial_sidebar_state="expanded")
 styles.apply_custom_css()
 
 # 상태 변수 초기화
@@ -291,8 +291,8 @@ def main_list_view():
             # TAB 2: 전체 정보 (Full-Loop)
             with tab2:
                 with st.form("edit_form_full"):
-                    # 중복 및 시스템 컬럼 제외
-                    exclude_cols = ['구분','건물명','매매가','수익률','대지면적','연면적','보증금','월차임','권리금','관리비','면적','층','내용','비고','선택','IronID','임대인','연락처','연락처2','지역_구','지역_동','번지', '층_clean', 'Unnamed: 0']
+                    # [v24.34.3] Clean Field List
+                    exclude_cols = ['구분','건물명','매매가','수익률','대지면적','연면적','보증금','월차임','권리금','관리비','면적','층','내용','비고','선택','IronID','임대인','연락처','연락처2','지역_구','지역_동','번지', '층_clean', 'Unnamed: 0', '_match_sig']
                     extra_cols = [c for c in item.index if c not in exclude_cols]
                     
                     updated_extras = {}
@@ -368,8 +368,8 @@ def main_list_view():
                     if w_min == 0: w_min = 1
                     st.success(f"**🚆 {sub['station']} {sub.get('exit', '')}** | 도보 약 {w_min}분 ({sub['dist']}m)")
                 
+                # [v24.34.3] DataFrame Safe Guard & Sort Lock
                 c_a, c_b = st.columns(2)
-                # [v24.33.2] Safe DataFrame Sort Lock
                 with c_a:
                     st.markdown("##### 📍 인근 주변 시설 (300m 이내)")
                     fac_df = c_data.get('facilities')
