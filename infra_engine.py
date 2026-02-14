@@ -41,43 +41,44 @@ def _extract_exit_number(place_name):
     except Exception: pass
     return ""
 
+def calculate_haversine(lat1, lon1, lat2, lon2):
+    """
+    [v24.28.1 New] 두 좌표(위도, 경도) 사이의 직선 거리(미터)를 계산합니다.
+    """
+    try:
+        R = 6371000  # 지구 반지름 (미터)
+        
+        phi1, phi2 = math.radians(float(lat1)), math.radians(float(lat2))
+        dphi = math.radians(float(lat2) - float(lat1))
+        dlambda = math.radians(float(lon2) - float(lon1))
+
+        a = math.sin(dphi / 2)**2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2)**2
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+        return int(R * c)
+    except Exception:
+        return 0
+
 def _calculate_walking_data(origin_x, origin_y, dest_x, dest_y):
-    """
-    [Legacy] 더 이상 지하철 분석에는 사용되지 않으나, 
-    추후 정밀 경로 분석이 필요할 경우를 위해 남겨둠.
-    """
-    if not (origin_x and origin_y and dest_x and dest_y): return 0, 0
-    url = "https://apis-navi.kakaomobility.com/v1/directions"
-    params = {"origin": f"{origin_x},{origin_y}", "destination": f"{dest_x},{dest_y}", "priority": "RECOMMEND", "car_type": 1}
-    try:
-        response = requests.get(url, headers=KAKAO_HEADERS, params=params, timeout=TIMEOUT_SEC)
-        if response.status_code == 200:
-            routes = response.json().get('routes', [])
-            if routes:
-                summary = routes[0].get('summary', {})
-                d = summary.get('distance', 0)
-                return d, round(d/67, 1)
-    except Exception: pass
-    try:
-        dx = (float(dest_x) - float(origin_x)) * 88000
-        dy = (float(dest_y) - float(origin_y)) * 111000
-        d = int(math.sqrt(dx**2 + dy**2) * 1.25)
-        return d, round(d/67, 1)
-    except Exception: return 0, 0
+    """[Legacy] 더 이상 사용되지 않음 (하버사인 공식으로 대체)"""
+    return 0, 0
 
 # ==========================================
-# 3. 핵심 분석 함수 (v24.28.1 수정판)
+# 3. 핵심 분석 함수 (v24.28.1 리스트형 엔진 + 하버사인)
 # ==========================================
 
 def get_commercial_analysis(lat, lng):
     """
     [통합 상권 분석]
-    1. 지하철역 정밀 분석 (직선거리 + 보정계수 1.25 적용)
-    2. 주변 10대 필수 시설 리스트
+    1. 지하철역 정밀 분석 (하버사인 직선거리 + 1.25배 보정)
+    2. 주변 10대 필수 시설 리스트 (거리순 정렬)
     3. Top 10 앵커 브랜드 스캔
     """
     result = {
-        "subway": {"station": "정보 없음", "exit": "", "dist": 0, "walk": 0},
+        "subway": {
+            "station": "정보 없음", "exit": "", "dist": 0, "walk": 0,
+            "coords": {"origin": (0, 0), "target": (0, 0)} # 좌표 정보 추가
+        },
         "facilities": pd.DataFrame(columns=['장소명', '업종', '거리(m)', '도보(분)']),
         "anchors": pd.DataFrame(columns=["브랜드", "지점명", "거리(m)", "도보(분)"])
     }
@@ -85,7 +86,7 @@ def get_commercial_analysis(lat, lng):
     try:
         if not lat or not lng: return result
 
-        # [Step 1] 지하철역 분석 (로직 수정됨)
+        # [Step 1] 지하철역 분석 (Haversine Logic)
         sub_params = {"category_group_code": "SW8", "x": lng, "y": lat, "radius": 700, "sort": "distance"}
         subways_raw = _call_kakao_local("category", sub_params)
         subways = [s for s in subways_raw if '지하철,전철' in s.get('category_name', '')]
@@ -95,19 +96,36 @@ def get_commercial_analysis(lat, lng):
             clean_name = re.sub(r'\(.*\)', '', nearest.get('place_name', '')).strip()
             station_name = clean_name.split()[0]
             
-            # 출구 검색
+            # 출구 정밀 검색
             exit_params = {"query": f"{station_name} 출구", "x": lng, "y": lat, "radius": 700, "sort": "distance"}
             exits = _call_kakao_local("keyword", exit_params)
             
-            # 타겟 설정 (출구가 있으면 출구 우선, 없으면 역 자체)
+            # 타겟 설정 (출구가 있으면 출구, 없으면 역)
             target = exits[0] if exits else nearest
             exit_n = _extract_exit_number(target.get('place_name', '')) if exits else ""
             
-            # [수정된 로직] API 거리값 사용 및 보정 공식 적용
-            d = int(target.get('distance', 0)) # API가 제공하는 직선 거리
-            t = round((d * 1.25) / 67, 1)      # 굴곡 보정(1.25배) 후 분속 67m로 나눔
+            # [v24.28.1] 좌표 추출 및 하버사인 거리 계산
+            target_lat = float(target.get('y'))
+            target_lng = float(target.get('x'))
             
-            result["subway"] = {"station": station_name, "exit": exit_n, "dist": d, "walk": t}
+            # 1. 직선 거리 (Haversine)
+            d = calculate_haversine(lat, lng, target_lat, target_lng)
+            
+            # 2. 도보 보정 (직선거리 * 1.25 / 분속 67m)
+            # 굴곡 보정 거리
+            corrected_dist = d * 1.25
+            t = round(corrected_dist / 67, 1)
+            
+            result["subway"] = {
+                "station": station_name, 
+                "exit": exit_n, 
+                "dist": d, # 직선 거리 반환
+                "walk": t, # 보정된 시간 반환
+                "coords": {
+                    "origin": (lat, lng),
+                    "target": (target_lat, target_lng)
+                }
+            }
 
         # [Step 2] 주변 10대 필수 시설 리스트
         target_cats = {
@@ -117,6 +135,7 @@ def get_commercial_analysis(lat, lng):
         
         all_places = []
         for cat_name, code in target_cats.items():
+            # 각 카테고리별 상위 5개씩 수집
             p = {"category_group_code": code, "x": lng, "y": lat, "radius": 300, "sort": "distance", "size": 5}
             items = _call_kakao_local("category", p)
             for item in items:
@@ -127,6 +146,7 @@ def get_commercial_analysis(lat, lng):
                     "도보(분)": round(int(item.get('distance', 0)) / 67, 1)
                 })
         
+        # 거리순 정렬 후 상위 10개 추출
         if all_places:
             df_fac = pd.DataFrame(all_places)
             df_fac = df_fac.sort_values(by="거리(m)").head(10).reset_index(drop=True)
