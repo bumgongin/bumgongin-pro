@@ -1,6 +1,6 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.32.0 Briefing Gen)
-# Feature: Clean UI, Stable Logic, Kakao Briefing Generator
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.32.1 Patch)
+# Feature: Enhanced Briefing Generator, Safe Row Selection
 
 import streamlit as st
 import pandas as pd
@@ -14,7 +14,7 @@ import infra_engine           # [Infra Engine v24.30.1]
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
-st.set_page_config(page_title="범공인 Pro (v24.32.0)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="범공인 Pro (v24.32.1)", layout="wide", initial_sidebar_state="expanded")
 styles.apply_custom_css()
 
 # 상태 변수 초기화
@@ -187,40 +187,36 @@ def main_list_view():
                 naver_url = f"https://map.naver.com/v5/search/{addr_full}?c={lng},{lat},17,0,0,0,dh"
                 st.link_button("📍 네이버 지도에서 위치 확인 (공식)", naver_url, use_container_width=True, type="primary")
                 
-                # --- [v24.32.0] 카톡 브리핑 문구 자동 생성기 추가 ---
+                # [v24.32.1] 번지수 및 권리금 포함 브리핑 생성기
                 st.divider()
                 with st.expander("💬 카톡 브리핑 문구 생성 (복사용)", expanded=True):
-                    # A. 지하철 도보 정보가 있는지 확인
+                    # 지하철 도보 정보 가공
                     sub = st.session_state.infra_res_c.get('subway', {}) if st.session_state.infra_res_c else {}
-                    walk_txt = ""
-                    if sub.get('station') and sub['station'] != "정보 없음":
-                        w_min = int(round(sub['walk']))
-                        if w_min == 0: w_min = 1
-                        walk_txt = f" ({sub['station']} 도보 {w_min}분)"
+                    walk_txt = f" ({sub['station']} 도보 {int(round(sub['walk']))}분)" if sub.get('station') and sub['station'] != "정보 없음" else ""
 
-                    # B. 가격 정보 정리 (매매/임대 구분)
                     is_sale = "매매" in st.session_state.current_sheet
+                    # 번지수 포함 주소 조립
+                    addr_disp = f"{item.get('지역_구', '')} {item.get('지역_동', '')} {item.get('번지', '')}".strip()
+                    
                     if is_sale:
                         price_txt = f"매매 {int(item.get('매매가', 0)):,}만"
                         if item.get('수익률', 0) > 0: price_txt += f" (수익률 {item['수익률']}%)"
                     else:
-                        price_txt = f"보 {int(item.get('보증금', 0)):,} / 월 {int(item.get('월차임', 0)):,}"
+                        # 권리금 유무 판단 로직
+                        kwon = int(item.get('권리금', 0))
+                        kwon_txt = f" / 권 {kwon:,}" if kwon > 0 else " / 권 무"
+                        price_txt = f"보 {int(item.get('보증금', 0)):,} / 월 {int(item.get('월차임', 0)):,}{kwon_txt}"
                         if item.get('관리비', 0) > 0: price_txt += f" (관 {int(item['관리비']):,})"
 
-                    # C. 면적 및 특징 정리
-                    spec_txt = f"{item.get('층', '')}층 / 실 {item.get('면적', 0)}평"
-                    desc_txt = item.get('내용', '상세내용 문의').strip()
-
-                    # D. 최종 템플릿 조립
+                    # 최종 템플릿 조립
                     briefing_msg = f"""[범공인 매물 브리핑]
-📍 위치: {item.get('지역_구', '')} {item.get('지역_동', '')}{walk_txt}
-🏢 구분: {item.get('구분', '')} ({spec_txt})
+📍 위치: {addr_disp}{walk_txt}
+🏢 구분: {item.get('구분', '')} ({item.get('층', '')}층 / 실 {item.get('면적', 0)}평)
 💰 조건: {price_txt}
-📝 특징: {desc_txt}"""
+📝 특징: {item.get('내용', '상세내용 문의').strip()}"""
 
-                    # E. 복사 버튼이 포함된 텍스트 박스 출력
                     st.code(briefing_msg, language=None)
-                    st.caption("▲ 우측 상단의 Copy 아이콘을 누르면 카톡에 바로 붙여넣을 수 있습니다.")
+                    st.caption("▲ 우측 상단 Copy 버튼으로 카톡에 붙여넣으세요.")
 
             else: 
                 st.warning("위치 확인 불가")
@@ -352,7 +348,7 @@ def main_list_view():
         df_filtered['층_clean'] = pd.to_numeric(df_filtered['층_clean'], errors='coerce').fillna(1)
         # 3. 필터 적용
         df_filtered = df_filtered[
-            (df_filtered['층_clean'] >= st.session_state.min_fl) & 
+            (df_filtered['층_clean'] >= st.session_state.min_fl) & 
             (df_filtered['층_clean'] <= st.session_state.max_fl)
         ]
 
@@ -502,14 +498,18 @@ def main_list_view():
                     st.cache_data.clear(); st.rerun()
                 else: st.error(msg)
     
-    # --------------------------------------------------------------------------
-    # [DATA SYNC] Determine selected_rows for Action Bar
-    # --------------------------------------------------------------------------
+    # [v24.32.1] selected_rows 안전 정의 (NameError 방지)
+    selected_rows = pd.DataFrame() 
     if st.session_state.view_mode == '📋 리스트 모드':
-        try: selected_rows = edited_df[edited_df['선택'] == True].drop(columns=['🔍'], errors='ignore')
-        except: selected_rows = pd.DataFrame()
+        try:
+            # 에디터에서 선택된 행 추출
+            selected_rows = edited_df[edited_df['선택'] == True].drop(columns=['🔍'], errors='ignore')
+        except:
+            pass
     else:
-        selected_rows = st.session_state.df_main[st.session_state.df_main['선택'] == True]
+        # 카드 모드에서 선택된 행 추출
+        if 'df_main' in st.session_state:
+            selected_rows = st.session_state.df_main[st.session_state.df_main['선택'] == True]
 
     # --- UNIVERSAL ACTION BAR ---
     st.divider()
