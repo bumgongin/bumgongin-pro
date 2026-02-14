@@ -1,6 +1,6 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.31.0 Clean Restore)
-# Feature: Clean UI Restore, Naver Map Only, Stable Logic
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.31.0 Hotfix)
+# Feature: Selected Rows Definition Fix, Clean UI, Stable Logic
 
 import streamlit as st
 import pandas as pd
@@ -176,10 +176,10 @@ def main_list_view():
                 st.rerun()
             
             lat, lng = map_api.get_naver_geocode(addr_full)
-            
-            # [v24.31.0] 클린 복구 버전: 지하철 대시보드 및 카카오 링크 완전 삭제
             if lat and lng:
                 map_img = map_api.fetch_map_image(lat, lng, zoom_level=st.session_state.zoom_level)
+                
+                # [v24.31.0] 클린 복구 버전: 지하철 대시보드 및 카카오 링크 완전 삭제
                 if map_img: 
                     st.image(map_img, use_column_width=True)
                     # 사장님 속 썩이던 지하철 정보와 카카오 버튼 구역을 통째로 들어냈습니다.
@@ -253,11 +253,9 @@ def main_list_view():
             if st.session_state.infra_res_c:
                 c_data = st.session_state.infra_res_c
                 
-                # 2-1. 지하철 정보 (대시보드는 삭제되었으므로 텍스트로만 간단히 안내하거나 생략 가능)
-                # 여기서는 텍스트로 간결하게 표시
+                # 2-1. 지하철 정보 텍스트 복구 (대시보드 대신)
                 sub = c_data.get('subway', {})
                 if sub.get('station') and sub['station'] != "정보 없음":
-                     # [v24.31.0] 지하철 정보 텍스트 복구 (대시보드 대신)
                      # 시간 정수 반올림
                      w_min = int(round(sub['walk']))
                      if w_min == 0: w_min = 1
@@ -402,7 +400,7 @@ def main_list_view():
         if c_prev.button("◀", key="prev_list"):
             if st.session_state.page_num > 1: st.session_state.page_num -= 1; st.rerun()
         c_page.markdown(f"<div class='pagination-text'>{st.session_state.page_num} / {total_pages}</div>", unsafe_allow_html=True)
-        if c_next.button("▶", key="next_list"):
+        if c_next.button("▶", key="next_card"):
             if st.session_state.page_num < total_pages: st.session_state.page_num += 1; st.rerun()
 
     # ==========================================================================
@@ -469,8 +467,16 @@ def main_list_view():
                     st.cache_data.clear(); st.rerun()
                 else: st.error(msg)
     
+    # --------------------------------------------------------------------------
+    # [DATA SYNC] Determine selected_rows for Action Bar
+    # --------------------------------------------------------------------------
+    if st.session_state.view_mode == '📋 리스트 모드':
+        try: selected_rows = edited_df[edited_df['선택'] == True].drop(columns=['🔍'], errors='ignore')
+        except: selected_rows = pd.DataFrame()
+    else:
+        selected_rows = st.session_state.df_main[st.session_state.df_main['선택'] == True]
+
     # --- UNIVERSAL ACTION BAR ---
-    # [v24.30.0] 액션 바 로직 정밀 분리 (이동/복구/삭제 안전장치)
     st.divider()
     if len(selected_rows) > 0:
         st.success(f"✅ {len(selected_rows)}건 선택됨")
@@ -514,11 +520,14 @@ def main_list_view():
                     st.success(msg); time.sleep(1); st.session_state.action_status = None
 
         elif st.session_state.action_status == 'delete_confirm':
-            with st.status("🗑️ 데이터 영구 삭제 경고", expanded=True):
-                st.error("⚠️ 주의: 삭제된 데이터는 복구할 수 없습니다.")
-                if st.button("영구 삭제 확정", key="conf_del", type="primary"):
+            with st.status("🗑️ 삭제 중...", expanded=True):
+                st.error("복구 불가")
+                if st.button("확인", key="conf_del", type="primary"):
                     _, msg, _ = engine.execute_transaction("delete", selected_rows, cur_tab)
-                    st.success(msg); time.sleep(1); del st.session_state.df_main; engine.safe_reset()
+                    st.success(msg)
+                    time.sleep(1)
+                    del st.session_state.df_main
+                    engine.safe_reset()
 
     with st.container(): st.write(""); st.write("")
 
