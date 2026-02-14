@@ -1,6 +1,6 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.34.3 Patch)
-# Feature: DataFrame Safe Guard, Field Cleanup, Stable UI
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.34.3 Final Stable)
+# Feature: Layout Optimization (Map-Info-Analysis), Error Fix, Clean Fields
 
 import streamlit as st
 import pandas as pd
@@ -145,7 +145,7 @@ st.title("🏙️ 범공인 매물장 (Pro)")
 
 def main_list_view():
     # --------------------------------------------------------------------------
-    # [DETAIL VIEW] 2-Column Layout
+    # [DETAIL VIEW] 2-Column Layout (Map/Info)
     # --------------------------------------------------------------------------
     if st.session_state.selected_item is not None:
         item = st.session_state.selected_item
@@ -162,12 +162,11 @@ def main_list_view():
 
         addr_full = f"{item.get('지역_구', '')} {item.get('지역_동', '')} {item.get('번지', '')}"
         
-        # [2-Column Layout Start]
+        # [2-Column Layout]
         col_left, col_right = st.columns([1.2, 1])
         
-        # --- LEFT COLUMN: MAP & ANALYSIS ---
+        # --- LEFT COLUMN: MAP ---
         with col_left:
-            # Zoom Buttons
             c_info, c_zoom = st.columns([3, 1])
             c_info.caption(f"📍 {addr_full}")
             z_minus, z_plus = c_zoom.columns(2)
@@ -181,17 +180,16 @@ def main_list_view():
             lat, lng = map_api.get_naver_geocode(addr_full)
             if lat and lng:
                 map_img = map_api.fetch_map_image(lat, lng, zoom_level=st.session_state.zoom_level)
-                if map_img: 
-                    st.image(map_img, use_column_width=True)
+                if map_img: st.image(map_img, use_column_width=True)
                 
                 naver_url = f"https://map.naver.com/v5/search/{addr_full}?c={lng},{lat},17,0,0,0,dh"
                 st.link_button("📍 네이버 지도에서 위치 확인 (공식)", naver_url, use_container_width=True, type="primary")
             else:
                 st.warning("위치 확인 불가")
 
-        # --- RIGHT COLUMN: INTELLIGENT ACTION BUTTONS ---
+        # --- RIGHT COLUMN: ACTIONS, CONTACT, FORM ---
         with col_right:
-            # 1. 퀵 액션 버튼
+            # 1. 퀵 액션
             cur_tab = st.session_state.current_sheet
             base_label = "매매" if "매매" in cur_tab else "임대"
             
@@ -220,13 +218,12 @@ def main_list_view():
                     _, msg, _ = engine.execute_transaction("copy", pd.DataFrame([item]), cur_tab, target)
                     st.success(msg); time.sleep(1.0) 
 
-            # [v24.34.1] 보안 정보 섹션 (연락처)
+            # 2. 보안 정보 (연락처)
             st.divider()
             with st.expander("🔒 보안 정보 (임대인/연락처)", expanded=False):
                 owner = item.get('임대인', '미확인')
                 st.write(f"👤 **임대인**: {owner}")
 
-                # 연락처 데이터 통합 및 추출
                 raw_c1 = str(item.get('연락처', '')).replace('nan', '')
                 raw_c2 = str(item.get('연락처2', '')).replace('nan', '')
                 full_text = f"{raw_c1} {raw_c2}"
@@ -242,11 +239,11 @@ def main_list_view():
                 else:
                     st.caption("🚫 등록된 연락처 번호가 없습니다.")
 
-            # [v24.34.2] 탭 구조 적용 (Clean Layout)
+            # 3. 탭 (수정 폼 & 브리핑)
             st.write("")
             tab1, tab2, tab3 = st.tabs(["📝 기본 수정", "📑 전체 정보", "💬 카톡 문구"])
             
-            # TAB 1: 기본 수정 (핵심 정보)
+            # TAB 1: 기본 수정
             with tab1:
                 with st.form("edit_form_basic"):
                     c1, c2 = st.columns(2)
@@ -291,7 +288,7 @@ def main_list_view():
             # TAB 2: 전체 정보 (Full-Loop)
             with tab2:
                 with st.form("edit_form_full"):
-                    # [v24.34.3] Clean Field List
+                    # [v24.34.3] Clean Field List (시스템 컬럼 제외)
                     exclude_cols = ['구분','건물명','매매가','수익률','대지면적','연면적','보증금','월차임','권리금','관리비','면적','층','내용','비고','선택','IronID','임대인','연락처','연락처2','지역_구','지역_동','번지', '층_clean', 'Unnamed: 0', '_match_sig']
                     extra_cols = [c for c in item.index if c not in exclude_cols]
                     
@@ -349,7 +346,9 @@ def main_list_view():
                 st.code(briefing_msg, language=None)
                 st.caption("▲ Copy 버튼으로 복사")
 
-        # [v24.32.3] 하단 통합 분석 섹션
+        # ----------------------------------------------------------------------
+        # [v24.34.3] 하단 통합 분석 섹션 (최하단 배치)
+        # ----------------------------------------------------------------------
         st.divider()
         if lat and lng:
             if st.button("📊 입지요약", use_container_width=True):
@@ -432,7 +431,7 @@ def main_list_view():
         df_filtered['층_clean'] = pd.to_numeric(df_filtered['층_clean'], errors='coerce').fillna(1)
         # 3. 필터 적용 (불필요한 공백 및 유령 문자 제거 완료)
         df_filtered = df_filtered[
-            (df_filtered['층_clean'] >= st.session_state.min_fl) & 
+            (df_filtered['층_clean'] >= st.session_state.min_fl) & 
             (df_filtered['층_clean'] <= st.session_state.max_fl)
         ]
 
