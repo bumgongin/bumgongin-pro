@@ -1,6 +1,6 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.32.3 Final Polish)
-# Feature: Quick Actions, Optimized Layout, Data Integrity
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.33.0 Phase 1)
+# Feature: Intelligent Buttons, Hot Reload Sync, Safe Copy
 
 import streamlit as st
 import pandas as pd
@@ -14,7 +14,7 @@ import infra_engine           # [Infra Engine v24.30.1]
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
-st.set_page_config(page_title="범공인 Pro (v24.32.3)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="범공인 Pro (v24.33.0)", layout="wide", initial_sidebar_state="expanded")
 styles.apply_custom_css()
 
 # 상태 변수 초기화
@@ -188,23 +188,43 @@ def main_list_view():
             else:
                 st.warning("위치 확인 불가")
 
-        # --- RIGHT COLUMN: EDIT FORM & BRIEFING ---
+        # --- RIGHT COLUMN: INTELLIGENT ACTION BUTTONS ---
         with col_right:
-            # [v24.32.3] 퀵 액션 버튼 구현
+            # [v24.33.0 Phase 1] 시트별 지능형 버튼 분기
             cur_tab = st.session_state.current_sheet
-            base_tab = cur_tab.replace("(종료)", "").replace("브리핑", "").strip()
             base_label = "매매" if "매매" in cur_tab else "임대"
             
-            q1, q2 = st.columns(2)
-            if q1.button(f"🚩 {base_label} 종료", use_container_width=True):
-                target = f"{base_tab}(종료)"
-                _, msg, _ = engine.execute_transaction("move", pd.DataFrame([item]), cur_tab, target)
-                st.success(msg); time.sleep(1.0); st.session_state.selected_item = None; del st.session_state.df_main; st.rerun()
+            # Case A: 브리핑 시트 (삭제 버튼만 표시)
+            if "브리핑" in cur_tab:
+                 if st.button("🗑️ 브리핑 삭제 (영구)", use_container_width=True, type="primary"):
+                     _, msg, _ = engine.execute_transaction("delete", pd.DataFrame([item]), cur_tab)
+                     st.success(msg); time.sleep(1.0); st.session_state.selected_item = None; del st.session_state.df_main; st.rerun()
+            
+            # Case B: 종료 시트 (복구 + 복사)
+            elif "(종료)" in cur_tab:
+                base_tab = cur_tab.replace("(종료)", "").strip()
+                q1, q2 = st.columns(2)
+                if q1.button(f"♻️ {base_label} 목록 복구", use_container_width=True):
+                    _, msg, _ = engine.execute_transaction("restore", pd.DataFrame([item]), cur_tab, base_tab)
+                    st.success(msg); time.sleep(1.0); st.session_state.selected_item = None; del st.session_state.df_main; st.rerun()
                 
-            if q2.button(f"🚀 {base_label} 브리핑 이동", use_container_width=True):
-                target = f"{base_tab}브리핑"
-                _, msg, _ = engine.execute_transaction("move", pd.DataFrame([item]), cur_tab, target)
-                st.success(msg); time.sleep(1.0); st.session_state.selected_item = None; del st.session_state.df_main; st.rerun()
+                if q2.button(f"🚀 {base_label} 브리핑 복사", use_container_width=True):
+                    target = f"{base_label}브리핑"
+                    _, msg, _ = engine.execute_transaction("copy", pd.DataFrame([item]), cur_tab, target)
+                    st.success(msg); time.sleep(1.0) # 복사는 리스트 갱신 불필요
+            
+            # Case C: 일반 시트 (종료 + 복사)
+            else:
+                q1, q2 = st.columns(2)
+                if q1.button(f"🚩 {base_label} 종료 처리", use_container_width=True):
+                    target = f"{base_label}(종료)"
+                    _, msg, _ = engine.execute_transaction("move", pd.DataFrame([item]), cur_tab, target)
+                    st.success(msg); time.sleep(1.0); st.session_state.selected_item = None; del st.session_state.df_main; st.rerun()
+                
+                if q2.button(f"🚀 {base_label} 브리핑 복사", use_container_width=True):
+                    target = f"{base_label}브리핑"
+                    _, msg, _ = engine.execute_transaction("copy", pd.DataFrame([item]), cur_tab, target)
+                    st.success(msg); time.sleep(1.0) 
 
             st.write("") # 간격
             
