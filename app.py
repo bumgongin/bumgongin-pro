@@ -181,7 +181,9 @@ def main_list_view():
             lat, lng = map_api.get_naver_geocode(addr_full)
             if lat and lng:
                 # [Adaptive Map Height] PC: 800px / Mobile fallback logic inside service
-                map_h = 800 
+                # 지도 높이를 기기별로 다르게 (PC 800, 모바일 520)
+                # 스트림릿은 화면이 좁아지면 컬럼이 깨지는 점을 이용한 꼼수입니다.
+                map_h = 800 if not st.sidebar.get('is_mobile', False) else 520
                 try:
                     map_img = map_api.fetch_map_image(lat, lng, zoom_level=st.session_state.zoom_level, height=map_h)
                 except TypeError:
