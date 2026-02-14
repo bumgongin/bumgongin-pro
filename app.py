@@ -1,11 +1,12 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.33.2 Phase 3)
-# Feature: Mobile Table Sort Lock, Briefing Fix, Smart Buttons
+# 범공인 Pro v24 Enterprise - Main Application Entry (v24.34.1 Phase 5)
+# Feature: Auto Contact Extraction, Dynamic Buttons, Regex Logic
 
 import streamlit as st
 import pandas as pd
 import time
 import math
+import re # [v24.34.1] 정규식 모듈 추가
 import core_engine as engine  # [Core Engine v24.29.2]
 import map_service as map_api # [Map Service v24.23.7]
 import styles                 # [Style Module v24.23.7]
@@ -14,7 +15,7 @@ import infra_engine           # [Infra Engine v24.30.1]
 # ==============================================================================
 # [INIT] 시스템 초기화
 # ==============================================================================
-st.set_page_config(page_title="범공인 Pro (v24.33.2)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="범공인 Pro (v24.34.1)", layout="wide", initial_sidebar_state="expanded")
 styles.apply_custom_css()
 
 # 상태 변수 초기화
@@ -190,44 +191,63 @@ def main_list_view():
 
         # --- RIGHT COLUMN: INTELLIGENT ACTION BUTTONS ---
         with col_right:
-            # [v24.33.0 Phase 1] 시트별 지능형 버튼 분기
+            # 1. 퀵 액션 버튼
             cur_tab = st.session_state.current_sheet
             base_label = "매매" if "매매" in cur_tab else "임대"
             
-            # Case A: 브리핑 시트
             if "브리핑" in cur_tab:
                  if st.button("🗑️ 브리핑 삭제 (영구)", use_container_width=True, type="primary"):
                      _, msg, _ = engine.execute_transaction("delete", pd.DataFrame([item]), cur_tab)
                      st.success(msg); time.sleep(1.0); st.session_state.selected_item = None; del st.session_state.df_main; st.rerun()
-            
-            # Case B: 종료 시트
             elif "(종료)" in cur_tab:
                 base_tab = cur_tab.replace("(종료)", "").strip()
                 q1, q2 = st.columns(2)
                 if q1.button(f"♻️ {base_label} 목록 복구", use_container_width=True):
                     _, msg, _ = engine.execute_transaction("restore", pd.DataFrame([item]), cur_tab, base_tab)
                     st.success(msg); time.sleep(1.0); st.session_state.selected_item = None; del st.session_state.df_main; st.rerun()
-                
                 if q2.button(f"🚀 {base_label} 브리핑 복사", use_container_width=True):
                     target = f"{base_label}브리핑"
                     _, msg, _ = engine.execute_transaction("copy", pd.DataFrame([item]), cur_tab, target)
                     st.success(msg); time.sleep(1.0)
-            
-            # Case C: 일반 시트
             else:
                 q1, q2 = st.columns(2)
                 if q1.button(f"🚩 {base_label} 종료 처리", use_container_width=True):
                     target = f"{base_label}(종료)"
                     _, msg, _ = engine.execute_transaction("move", pd.DataFrame([item]), cur_tab, target)
                     st.success(msg); time.sleep(1.0); st.session_state.selected_item = None; del st.session_state.df_main; st.rerun()
-                
                 if q2.button(f"🚀 {base_label} 브리핑 복사", use_container_width=True):
                     target = f"{base_label}브리핑"
                     _, msg, _ = engine.execute_transaction("copy", pd.DataFrame([item]), cur_tab, target)
                     st.success(msg); time.sleep(1.0) 
 
-            st.write("") # 간격
-            
+            # [v24.34.1 Phase 5] 연락처 자동 추출 및 동적 버튼 생성
+            st.divider()
+            with st.expander("🔒 보안 정보 (임대인/연락처)", expanded=False):
+                owner = item.get('임대인', '미확인')
+                st.write(f"👤 **임대인**: {owner}")
+
+                # 연락처 데이터 통합 및 추출
+                raw_c1 = str(item.get('연락처', '')).replace('nan', '')
+                raw_c2 = str(item.get('연락처2', '')).replace('nan', '')
+                full_text = f"{raw_c1} {raw_c2}"
+                
+                # 정규식으로 번호만 추출 (하이픈 포함)
+                found_numbers = re.findall(r'\d{2,3}-\d{3,4}-\d{4}', full_text)
+                
+                # 중복 제거 (순서 유지)
+                unique_numbers = sorted(set(found_numbers), key=found_numbers.index)
+
+                if unique_numbers:
+                    st.caption(f"📝 원문: {full_text.strip()}") # 식별용 원문
+                    for num in unique_numbers:
+                        c_call, c_sms = st.columns(2)
+                        c_call.link_button(f"📞 통화 ({num})", f"tel:{num}", use_container_width=True)
+                        c_sms.link_button(f"💬 문자 ({num})", f"sms:{num}", use_container_width=True)
+                else:
+                    st.caption("🚫 등록된 연락처 번호가 없습니다.")
+
+            # 매물 정보 수정 폼 (Full-Loop 적용)
+            st.write("") 
             with st.form("edit_form"):
                 st.markdown("#### 📝 매물 정보 수정")
                 c1, c2 = st.columns(2)
@@ -257,11 +277,25 @@ def main_list_view():
                 new_desc = st.text_area("**특징**", value=item.get('내용', ''), height=150)
                 new_memo = st.text_area("**비고**", value=item.get('비고', ''), height=80)
 
+                # [v24.34.0] 숨겨진 나머지 컬럼 자동 생성 (Full-Loop)
+                exclude_cols = ['구분','건물명','매매가','수익률','대지면적','연면적','보증금','월차임','권리금','관리비','면적','층','내용','비고','선택','IronID','임대인','연락처','연락처2','지역_구','지역_동','번지']
+                extra_cols = [c for c in item.index if c not in exclude_cols]
+                
+                updated_extras = {}
+                if extra_cols:
+                    st.markdown("---")
+                    st.caption("기타 정보")
+                    for ecol in extra_cols:
+                        updated_extras[ecol] = st.text_input(ecol, value=str(item.get(ecol, '')).replace('nan',''))
+
                 if st.form_submit_button("💾 수정 완료", type="primary", use_container_width=True):
                     updated_data = item.copy()
                     updated_data.update({'구분': new_cat, '건물명': new_name, '면적': new_area, '층': new_floor, '내용': new_desc, '비고': new_memo})
                     if is_sale_mode: updated_data.update({'매매가': new_price, '수익률': new_yield, '대지면적': new_land, '연면적': new_total})
                     else: updated_data.update({'보증금': new_dep, '월차임': new_rent, '권리금': new_kwon, '관리비': new_man})
+                    
+                    # 기타 컬럼 업데이트 병합
+                    updated_data.update(updated_extras)
                     
                     success, msg = engine.update_single_row(updated_data, st.session_state.current_sheet)
                     if success:
@@ -269,7 +303,7 @@ def main_list_view():
                         st.session_state.selected_item = None; st.cache_data.clear(); st.rerun()
                     else: st.error(msg)
             
-            # 카톡 브리핑 생성기
+            # 카톡 브리핑 생성기 (순서 교정 완료)
             st.write("")
             with st.expander("💬 카톡 브리핑 문구 생성 (복사용)", expanded=True):
                 sub = st.session_state.infra_res_c.get('subway', {}) if st.session_state.infra_res_c else {}
@@ -279,28 +313,19 @@ def main_list_view():
                     if w_min == 0: w_min = 1
                     walk_txt = f" ({sub['station']} 도보 {w_min}분)"
 
-                # [v24.33.1 Phase 2] 브리핑 문구 순서 교정 (보->월->관->권)
                 is_sale = "매매" in st.session_state.current_sheet
                 addr_disp = f"{item.get('지역_구', '')} {item.get('지역_동', '')} {item.get('번지', '')}".strip()
                 
                 if is_sale:
-                    # 매매 모드: 매매가 / 수익률 순서
                     price_txt = f"매매 {int(item.get('매매가', 0)):,}만"
                     if item.get('수익률', 0) > 0: price_txt += f" / 수익 {item['수익률']}%"
                 else:
-                    # 임대 모드: 보증금 / 월세 / 관리비 / 권리금 순서로 재배치
                     dep = int(item.get('보증금', 0))
                     rent = int(item.get('월차임', 0))
                     man = int(item.get('관리비', 0))
                     kwon = int(item.get('권리금', 0))
-                    
-                    # 1. 보증금 / 월세 기본 구성
                     price_txt = f"보 {dep:,} / 월 {rent:,}"
-                    
-                    # 2. 관리비 추가 (괄호 없이 슬래시 구분)
                     if man > 0: price_txt += f" / 관 {man:,}"
-                    
-                    # 3. 권리금 추가 (마지막 배치)
                     if kwon > 0: price_txt += f" / 권 {kwon:,}"
                     else: price_txt += " / 권 무"
 
@@ -335,7 +360,6 @@ def main_list_view():
                     if w_min == 0: w_min = 1
                     st.success(f"**🚆 {sub['station']} {sub.get('exit', '')}** | 도보 약 {w_min}분 ({sub['dist']}m)")
                 
-                # [v24.33.2 Phase 3] 모바일 표 정렬 잠금 처리 (행 밀림 방지)
                 c_a, c_b = st.columns(2)
                 with c_a:
                     st.markdown("##### 📍 인근 주변 시설 (300m 이내)")
