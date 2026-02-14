@@ -177,19 +177,27 @@ def main_list_view():
             if z_plus.button("＋", key="zoom_in", use_container_width=True, type="secondary"):
                 if st.session_state.zoom_level < 19: st.session_state.zoom_level += 1
                 st.rerun()
+# [v24.36.2] 지도 높이 가변 로직 및 유령 문자 제거 완료
+        with col_left:
+            c_info, c_zoom = st.columns([3, 1])
+            c_info.caption(f"📍 {addr_full}")
+            z_minus, z_plus = c_zoom.columns(2)
+            if z_minus.button("－", key="zoom_out", use_container_width=True):
+                if st.session_state.zoom_level > 10: st.session_state.zoom_level -= 1; st.rerun()
+            if z_plus.button("＋", key="zoom_in", use_container_width=True):
+                if st.session_state.zoom_level < 19: st.session_state.zoom_level += 1; st.rerun()
             
             lat, lng = map_api.get_naver_geocode(addr_full)
             if lat and lng:
-                # [Adaptive Map Height] PC: 800px / Mobile fallback logic inside service
-                # 지도 높이를 기기별로 다르게 (PC 800, 모바일 520)
-                # 스트림릿은 화면이 좁아지면 컬럼이 깨지는 점을 이용한 꼼수입니다.
-                map_h = 800 if not st.sidebar.get('is_mobile', False) else 520
+                # 기기별 높이: PC는 800, 모바일은 520 (안전한 session_state 참조)
+                map_h = 800 if st.session_state.get('view_mode') == '🗂️ 카드 모드' else 520
                 try:
                     map_img = map_api.fetch_map_image(lat, lng, zoom_level=st.session_state.zoom_level, height=map_h)
-                except TypeError:
+                except:
                     map_img = map_api.fetch_map_image(lat, lng, zoom_level=st.session_state.zoom_level)
-                    
-                if map_img: st.image(map_img, use_column_width=True)
+                
+                if map_img: st.image(map_img, use_container_width=True)
+                st.link_button("📍 네이버 지도에서 위치 확인 (공식)", f"https://map.naver.com/v5/search/{addr_full}", use_container_width=True, type="primary")                if map_img: st.image(map_img, use_column_width=True)
                 
                 naver_url = f"https://map.naver.com/v5/search/{addr_full}?c={lng},{lat},17,0,0,0,dh"
                 st.link_button("📍 네이버 지도에서 위치 확인 (공식)", naver_url, use_container_width=True, type="primary")
