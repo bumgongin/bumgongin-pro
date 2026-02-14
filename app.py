@@ -195,9 +195,11 @@ def main_list_view():
                     map_img = map_api.fetch_map_image(lat, lng, zoom_level=st.session_state.zoom_level, height=map_h)
                 except:
                     map_img = map_api.fetch_map_image(lat, lng, zoom_level=st.session_state.zoom_level)
-                
-                if map_img: st.image(map_img, use_container_width=True)
-                st.link_button("📍 네이버 지도에서 위치 확인 (공식)", f"https://map.naver.com/v5/search/{addr_full}", use_container_width=True, type="primary")                if map_img: st.image(map_img, use_column_width=True)
+# [v24.36.3] 줄 바꿈 오류 수정 버전
+                if map_img:
+                    st.image(map_img, use_container_width=True)
+
+                st.link_button("📍 네이버 지도에서 위치 확인 (공식)", f"https://map.naver.com/v5/search/{addr_full}", use_container_width=True, type="primary")
                 
                 naver_url = f"https://map.naver.com/v5/search/{addr_full}?c={lng},{lat},17,0,0,0,dh"
                 st.link_button("📍 네이버 지도에서 위치 확인 (공식)", naver_url, use_container_width=True, type="primary")
