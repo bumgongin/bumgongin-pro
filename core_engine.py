@@ -213,45 +213,53 @@ def create_match_signature(df, keys):
 
 def update_single_row(updated_row, sheet_name):
     """
-    [Phase 4] IronID를 기준으로 단일 행을 즉시 업데이트합니다.
+    [Phase 4] IronID 기반 매칭 (시트에 ID가 없을 경우 번지/층으로 자동 전환하는 하이브리드형)
     """
     conn = st.connection("gsheets", type=GSheetsConnection)
     try:
-        # 1. 서버 데이터 로드 (매칭용)
+        # 1. 서버 데이터 로드
         sheet_data = normalize_headers(conn.read(spreadsheet=SHEET_URL, worksheet=sheet_name, ttl=0))
         
-        # 2. 고유 식별자 확인
+        # 2. 구글 시트에 'IronID' 컬럼이 없다면 강제로 만들어줍니다. (최초 1회 방어)
+        if 'IronID' not in sheet_data.columns:
+            sheet_data['IronID'] = ""
+
         target_id = updated_row.get('IronID')
-        if not target_id or 'IronID' not in sheet_data.columns:
-            return False, "❌ 식별 불가 (IronID가 시트에 없거나 데이터가 비어있습니다)"
+        row_idx = None
+
+        # 3. 먼저 IronID로 똑똑하게 찾아봅니다.
+        match_list = sheet_data.index[sheet_data['IronID'].astype(str) == str(target_id)].tolist()
         
-        # 3. 매칭 및 업데이트
-        try:
-            # 시트의 'IronID' 열에서 똑같은 번호를 가진 행의 위치를 찾습니다.
-            match_list = sheet_data.index[sheet_data['IronID'].astype(str) == str(target_id)].tolist()
-            
-            if not match_list:
-                return False, "❌ 원본 데이터를 찾을 수 없습니다. (이미 삭제되었거나 이동됨)"
-            
+        if match_list:
             row_idx = match_list[0]
-            
-            # 4. 값 덮어쓰기
-            for k, v in updated_row.items():
-                if k in sheet_data.columns and k not in ['선택', 'IronID']:
-                    if k in NUMERIC_COLS:
-                        try:
-                            # 숫자 데이터 정제 (콤마 제거 등)
-                            val_str = re.sub(r'[^0-9.-]', '', str(v)) if v else "0"
-                            v = float(val_str) if val_str else 0.0
-                        except: v = 0.0
-                    sheet_data.at[row_idx, k] = v
-            
-            # 5. 저장
-            conn.update(spreadsheet=SHEET_URL, worksheet=sheet_name, data=sheet_data)
-            return True, "✅ 수정 사항이 안전하게 저장되었습니다."
-            
-        except Exception as e:
-            return False, f"매칭 오류: {str(e)}"
+        else:
+            # 4. [중요] ID로 못 찾았다면(최초 저장 시), 옛날 방식(번지/층/면적)으로 비상 수색합니다.
+            v_keys = [k for k in ['번지', '층', '면적'] if k in sheet_data.columns]
+            for idx, row in sheet_data.iterrows():
+                # 모든 조건이 일치하는지 대조
+                is_match = True
+                for k in v_keys:
+                    if str(row.get(k, '')).strip() != str(updated_row.get(k, '')).strip():
+                        is_match = False; break
+                if is_match:
+                    row_idx = idx; break
+
+        if row_idx is None:
+            return False, "❌ 매칭 실패: 시트에서 해당 매물을 찾을 수 없습니다. (번지/층이 변경되었을 수 있음)"
+
+        # 5. 값 덮어쓰기 (이때 IronID도 시트에 함께 새겨집니다)
+        for k, v in updated_row.items():
+            if k in sheet_data.columns and k not in ['선택']:
+                if k in NUMERIC_COLS:
+                    try:
+                        val_str = re.sub(r'[^0-9.-]', '', str(v)) if v else "0"
+                        v = float(val_str) if val_str else 0.0
+                    except: v = 0.0
+                sheet_data.at[row_idx, k] = v
+        
+        # 6. 저장
+        conn.update(spreadsheet=SHEET_URL, worksheet=sheet_name, data=sheet_data)
+        return True, "✅ 수정 사항이 안전하게 저장되었습니다. (데이터 동기화 완료)"
             
     except Exception as e:
         return False, f"저장 실패: {str(e)}"
@@ -377,4 +385,5 @@ def execute_transaction(action_type, target_rows, source_sheet, target_sheet=Non
             
     except Exception as e: 
         return False, str(e), traceback.format_exc()
+
 
