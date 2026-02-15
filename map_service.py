@@ -79,6 +79,31 @@ def fetch_map_image(lat, lng, zoom_level=16, height=300):
         return None
     except Exception as e:
         print(f"Map Fetch Internal Error: {e}")
+        return None
+    
+    url = "https://maps.apigw.ntruss.com/map-static/v2/raster"
+    
+    headers = {
+        "X-NCP-APIGW-API-KEY-ID": NAVER_CLIENT_ID,
+        "X-NCP-APIGW-API-KEY": NAVER_CLIENT_SECRET
+    }
+    
+    params = {
+        "w": "600",
+        "h": str(height), 
+        "center": f"{lng},{lat}",
+        "level": str(zoom_level),
+        "markers": f"type:t|size:mid|pos:{lng} {lat}|label:매물",
+        "scale": "2" 
+    }
+    
+    try:
+        response = requests.get(url, headers=headers, params=params)
+        if response.status_code == 200:
+            return response.content
+        return None
+    except Exception as e:
+        print(f"Map Fetch Internal Error: {e}")
         return None    
     # VPC Endpoint 강제 적용
     url = "https://maps.apigw.ntruss.com/map-static/v2/raster"
