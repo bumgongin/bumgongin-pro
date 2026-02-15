@@ -153,7 +153,7 @@ def safe_reset():
 @st.cache_data(ttl=600)
 def load_sheet_data(sheet_name):
     """
-    구글 시트에서 데이터를 로드하고 전처리합니다. (IronID 보존형)
+    구글 시트에서 데이터를 로드하고 전처리합니다. (IronID 보존 및 빈칸 채우기)
     """
     gid = SHEET_GIDS.get(sheet_name)
     if not gid: return None
@@ -165,11 +165,13 @@ def load_sheet_data(sheet_name):
         df = normalize_headers(df)
         df = sanitize_dataframe(df)
         
-        # [수정] IronID가 시트에 이미 있다면 그대로 쓰고, 없을 때만 새로 만듭니다.
+        # [수정 지점] IronID 열을 확인하고 비어있는 칸(NaN)에 고유 번호를 채웁니다.
         if 'IronID' not in df.columns:
             df['IronID'] = [str(uuid.uuid4()) for _ in range(len(df))]
+        else:
+            # 시트에 열은 있지만 칸이 비어있는 경우를 대비한 안전장치
+            df['IronID'] = df['IronID'].apply(lambda x: str(uuid.uuid4()) if pd.isna(x) or str(x).strip() == "" else str(x))
         
-        # '선택' 체크박스 열은 화면용이므로 항상 새로 만듭니다.
         if '선택' in df.columns: df = df.drop(columns=['선택'])
         df.insert(0, '선택', False)
         
@@ -393,6 +395,7 @@ def execute_transaction(action_type, target_rows, source_sheet, target_sheet=Non
             
     except Exception as e: 
         return False, str(e), traceback.format_exc()
+
 
 
 
