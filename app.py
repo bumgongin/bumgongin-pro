@@ -180,10 +180,9 @@ def main_list_view():
             
             lat, lng = map_api.get_naver_geocode(addr_full)
             if lat and lng:
-# [v24.36.1] 사장님 요청 지도 높이 반영 (PC 1200 / 모바일 630)
+# [v24.36.2] 지도 높이 최종 조정 (PC: 2400 / 모바일: 700)
                 is_pc = st.session_state.get('view_mode') == '🗂️ 카드 모드'
-                map_h = 1200 if is_pc else 630
-                
+                map_h = 2400 if is_pc else 700                
                 try:
                     map_img = map_api.fetch_map_image(lat, lng, zoom_level=st.session_state.zoom_level, height=map_h)
                 except TypeError:
