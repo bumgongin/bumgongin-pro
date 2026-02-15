@@ -78,20 +78,14 @@ def apply_custom_css():
 
         /* --------------------------------------------------------------------- */
 
-        .map-container {
-
-            width: 100%; height: 250px;
-
+.map-container {
+            width: 100%; 
+            height: auto !important; 
             border-radius: 12px; overflow: hidden;
-
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-
             border: 1px solid #e0e0e0;
-
             margin-bottom: 20px; background-color: #f8f9fa;
-
             display: flex; justify-content: center; align-items: center;
-
         }
 
 
