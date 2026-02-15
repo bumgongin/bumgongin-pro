@@ -214,65 +214,48 @@ def create_match_signature(df, keys):
 # ==============================================================================
 
 def update_single_row(updated_row, sheet_name):
-    """
-    [Phase 4] 무적 매칭 (소수점, 공백, 형식 차이를 무시하고 IronID를 새겨주는 최종판)
-    """
     conn = st.connection("gsheets", type=GSheetsConnection)
     try:
-        # 1. 서버 데이터 로드 및 정제 (형식을 앱과 통일시킵니다)
         raw_data = conn.read(spreadsheet=SHEET_URL, worksheet=sheet_name, ttl=0)
         sheet_data = normalize_headers(raw_data)
-        sheet_data = sanitize_dataframe(sheet_data) # 데이터 정제 추가
+        sheet_data = sanitize_dataframe(sheet_data)
 
-        # 2. 구글 시트에 'IronID' 컬럼이 없다면 생성
         if 'IronID' not in sheet_data.columns:
             sheet_data['IronID'] = ""
 
         target_id = updated_row.get('IronID')
         row_idx = None
 
-        # 3. 먼저 IronID로 찾기
         match_list = sheet_data.index[sheet_data['IronID'].astype(str) == str(target_id)].tolist()
         
         if match_list:
             row_idx = match_list[0]
         else:
-            # 4. ID가 없을 때 비상 수색 (숫자 오차 무시 로직 적용)
+            # 비상 수색: 번지/층/면적으로 찾기 (숫자 형식 무시 로직)
             v_keys = [k for k in ['번지', '층', '면적'] if k in sheet_data.columns]
             for idx, row in sheet_data.iterrows():
                 is_match = True
                 for k in v_keys:
-                    # 양쪽 데이터를 숫자로 변환 시도하여 비교 (7 vs 7.0 방지)
                     try:
-                        s_val = float(re.sub(r'[^0-9.-]', '', str(row.get(k, ''))))
-                        a_val = float(re.sub(r'[^0-9.-]', '', str(updated_row.get(k, ''))))
-                        if s_val != a_val:
+                        if float(re.sub(r'[^0-9.-]', '', str(row.get(k, '')))) != float(re.sub(r'[^0-9.-]', '', str(updated_row.get(k, '')))):
                             is_match = False; break
                     except:
-                        # 숫자가 아닌 경우(주소 등)는 문자열로 비교
                         if str(row.get(k, '')).strip() != str(updated_row.get(k, '')).strip():
                             is_match = False; break
-                if is_match:
-                    row_idx = idx; break
+                if is_match: row_idx = idx; break
 
-        if row_idx is None:
-            return False, "❌ 매칭 실패: 데이터 형식 불일치. (구글 시트에서 'IronID' 열을 수동으로 추가하는 것을 추천합니다)"
+        if row_idx is None: return False, "❌ 매칭 실패: 데이터 일치 항목 없음"
 
-        # 5. 값 업데이트 (IronID 문신 새기기)
         for k, v in updated_row.items():
             if k in sheet_data.columns and k not in ['선택']:
                 if k in NUMERIC_COLS:
-                    try:
-                        v = float(re.sub(r'[^0-9.-]', '', str(v))) if v else 0.0
+                    try: v = float(re.sub(r'[^0-9.-]', '', str(v)))
                     except: v = 0.0
                 sheet_data.at[row_idx, k] = v
         
-        # 6. 서버 전송
         conn.update(spreadsheet=SHEET_URL, worksheet=sheet_name, data=sheet_data)
-        return True, "✅ 저장 성공! (이제 이 매물은 주소를 바꿔도 안전하게 저장됩니다)"
-            
-    except Exception as e:
-        return False, f"저장 실패: {str(e)}"
+        return True, "✅ 저장 성공!"
+    except Exception as e: return False, f"저장 실패: {str(e)}"
 
 def save_updates_to_sheet(edited_df, original_df, sheet_name):
     """
@@ -395,6 +378,7 @@ def execute_transaction(action_type, target_rows, source_sheet, target_sheet=Non
             
     except Exception as e: 
         return False, str(e), traceback.format_exc()
+
 
 
 
