@@ -180,14 +180,17 @@ def main_list_view():
             
             lat, lng = map_api.get_naver_geocode(addr_full)
             if lat and lng:
-                # [Adaptive Map Height] PC: 800px / Mobile fallback logic inside service
-                map_h = 800 
+# [v24.36.1] 사장님 요청 지도 높이 반영 (PC 1200 / 모바일 630)
+                is_pc = st.session_state.get('view_mode') == '🗂️ 카드 모드'
+                map_h = 1200 if is_pc else 630
+                
                 try:
                     map_img = map_api.fetch_map_image(lat, lng, zoom_level=st.session_state.zoom_level, height=map_h)
                 except TypeError:
                     map_img = map_api.fetch_map_image(lat, lng, zoom_level=st.session_state.zoom_level)
-                    
-                if map_img: st.image(map_img, use_column_width=True)
+                
+                if map_img: 
+                    st.image(map_img, use_container_width=True)
                 
                 naver_url = f"https://map.naver.com/v5/search/{addr_full}?c={lng},{lat},17,0,0,0,dh"
                 st.link_button("📍 네이버 지도에서 위치 확인 (공식)", naver_url, use_container_width=True, type="primary")
