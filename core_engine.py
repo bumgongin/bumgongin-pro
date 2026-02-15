@@ -153,7 +153,7 @@ def safe_reset():
 @st.cache_data(ttl=600)
 def load_sheet_data(sheet_name):
     """
-    구글 시트에서 데이터를 로드하고 전처리합니다.
+    구글 시트에서 데이터를 로드하고 전처리합니다. (IronID 보존형)
     """
     gid = SHEET_GIDS.get(sheet_name)
     if not gid: return None
@@ -165,12 +165,12 @@ def load_sheet_data(sheet_name):
         df = normalize_headers(df)
         df = sanitize_dataframe(df)
         
-        # 시스템 컬럼 제거
-        drop_cols = [c for c in ['선택', 'IronID', 'Unnamed: 0'] if c in df.columns]
-        df = df.drop(columns=drop_cols, errors='ignore')
+        # [수정] IronID가 시트에 이미 있다면 그대로 쓰고, 없을 때만 새로 만듭니다.
+        if 'IronID' not in df.columns:
+            df['IronID'] = [str(uuid.uuid4()) for _ in range(len(df))]
         
-        # 로컬 식별자(IronID) 및 선택 컬럼 추가
-        df['IronID'] = [str(uuid.uuid4()) for _ in range(len(df))]
+        # '선택' 체크박스 열은 화면용이므로 항상 새로 만듭니다.
+        if '선택' in df.columns: df = df.drop(columns=['선택'])
         df.insert(0, '선택', False)
         
         return df
@@ -213,86 +213,48 @@ def create_match_signature(df, keys):
 
 def update_single_row(updated_row, sheet_name):
     """
-    [Phase 4] 상세 보기 화면에서 단일 행을 즉시 업데이트합니다.
+    [Phase 4] IronID를 기준으로 단일 행을 즉시 업데이트합니다.
     """
     conn = st.connection("gsheets", type=GSheetsConnection)
     try:
-        # 1. 서버 데이터 로드
+        # 1. 서버 데이터 로드 (매칭용)
         sheet_data = normalize_headers(conn.read(spreadsheet=SHEET_URL, worksheet=sheet_name, ttl=0))
         
-        # 2. 매칭 키 설정
-        match_keys = ['번지', '층', '면적'] 
-        valid_keys = [k for k in match_keys if k in sheet_data.columns and k in updated_row]
+        # 2. 고유 식별자 확인
+        target_id = updated_row.get('IronID')
+        if not target_id or 'IronID' not in sheet_data.columns:
+            return False, "❌ 식별 불가 (IronID가 시트에 없거나 데이터가 비어있습니다)"
         
-        if len(valid_keys) < 2: 
-            return False, "식별 키 부족 (번지/층/면적 필수)"
-        
-        # 3. 로컬 데이터 서명 생성
-        local_sig = ""
-        for k in valid_keys:
-             val_str = str(updated_row.get(k, ''))
-             if k in NUMERIC_COLS:
-                 if k == '층':
-                     match = re.search(r'(-?[\d.]+)', val_str)
-                     val_clean = match.group(1) if match else "0"
-                 else:
-                     val_clean = re.sub(r'[^0-9.]', '', val_str)
-                 
-                 try: val = str(round(float(val_clean), 1)).replace('.0', '')
-                 except: val = "0"
-             else:
-                 val = re.sub(r'[^가-힣a-zA-Z0-9]', '', val_str)
-             local_sig += val + "|"
-             
-        # 4. 서버 데이터 서명 생성
-        server_sigs = []
-        for _, row in sheet_data.iterrows():
-            sig = ""
-            for k in valid_keys:
-                val_str = str(row.get(k, ''))
-                if k in NUMERIC_COLS:
-                    if k == '층':
-                        match = re.search(r'(-?[\d.]+)', val_str)
-                        val_clean = match.group(1) if match else "0"
-                    else:
-                        val_clean = re.sub(r'[^0-9.]', '', val_str)
-                        
-                    try: val = str(round(float(val_clean), 1)).replace('.0', '')
-                    except: val = "0"
-                else:
-                    val = re.sub(r'[^가-힣a-zA-Z0-9]', '', val_str)
-                sig += val + "|"
-            server_sigs.append(sig)
-            
-        # 5. 매칭 및 업데이트
+        # 3. 매칭 및 업데이트
         try:
-            target_idx = server_sigs.index(local_sig)
+            # 시트의 'IronID' 열에서 똑같은 번호를 가진 행의 위치를 찾습니다.
+            match_list = sheet_data.index[sheet_data['IronID'].astype(str) == str(target_id)].tolist()
             
-            # 값 덮어쓰기
+            if not match_list:
+                return False, "❌ 원본 데이터를 찾을 수 없습니다. (이미 삭제되었거나 이동됨)"
+            
+            row_idx = match_list[0]
+            
+            # 4. 값 덮어쓰기
             for k, v in updated_row.items():
                 if k in sheet_data.columns and k not in ['선택', 'IronID']:
                     if k in NUMERIC_COLS:
-                        try: 
-                            raw_v = str(v)
-                            if k == '층':
-                                match = re.search(r'(-?[\d.]+)', raw_v)
-                                v_str = match.group(1) if match else "0"
-                            else:
-                                v_str = re.sub(r'[^0-9.]', '', raw_v)
-                            
-                            v = float(v_str) if v_str else 0.0
+                        try:
+                            # 숫자 데이터 정제 (콤마 제거 등)
+                            val_str = re.sub(r'[^0-9.-]', '', str(v)) if v else "0"
+                            v = float(val_str) if val_str else 0.0
                         except: v = 0.0
-                    sheet_data.at[target_idx, k] = v
+                    sheet_data.at[row_idx, k] = v
             
-            # 6. 저장
+            # 5. 저장
             conn.update(spreadsheet=SHEET_URL, worksheet=sheet_name, data=sheet_data)
-            return True, "✅ 수정 사항이 저장되었습니다."
+            return True, "✅ 수정 사항이 안전하게 저장되었습니다."
             
-        except ValueError:
-            return False, "❌ 원본 데이터를 찾을 수 없습니다. (키 값이 변경되었을 수 있음)"
+        except Exception as e:
+            return False, f"매칭 오류: {str(e)}"
             
     except Exception as e:
-        return False, f"업데이트 실패: {str(e)}"
+        return False, f"저장 실패: {str(e)}"
 
 def save_updates_to_sheet(edited_df, original_df, sheet_name):
     """
@@ -415,3 +377,4 @@ def execute_transaction(action_type, target_rows, source_sheet, target_sheet=Non
             
     except Exception as e: 
         return False, str(e), traceback.format_exc()
+
