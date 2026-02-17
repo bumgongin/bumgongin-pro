@@ -214,48 +214,49 @@ def create_match_signature(df, keys):
 # ==============================================================================
 
 def update_single_row(updated_row, sheet_name):
+    """
+    [Phase 4] IronID를 기준으로 단일 행을 즉시 업데이트합니다. (구/동/번지 수정 가능)
+    """
     conn = st.connection("gsheets", type=GSheetsConnection)
     try:
-        raw_data = conn.read(spreadsheet=SHEET_URL, worksheet=sheet_name, ttl=0)
-        sheet_data = normalize_headers(raw_data)
-        sheet_data = sanitize_dataframe(sheet_data)
-
-        if 'IronID' not in sheet_data.columns:
-            sheet_data['IronID'] = ""
-
+        # 1. 서버 데이터 로드
+        sheet_data = normalize_headers(conn.read(spreadsheet=SHEET_URL, worksheet=sheet_name, ttl=0))
+        
+        # 2. 고유 식별자(IronID) 확인
         target_id = updated_row.get('IronID')
-        row_idx = None
-
-        match_list = sheet_data.index[sheet_data['IronID'].astype(str) == str(target_id)].tolist()
+        if not target_id or 'IronID' not in sheet_data.columns:
+            return False, "❌ 식별 불가 (먼저 상세페이지에서 저장을 수행하여 ID를 생성하세요)"
         
-        if match_list:
+        # 3. 매칭 및 업데이트 (ID로 행 위치 찾기)
+        try:
+            # 문자열로 변환하여 정확히 비교
+            match_list = sheet_data.index[sheet_data['IronID'].astype(str) == str(target_id)].tolist()
+            
+            if not match_list:
+                return False, "❌ 원본 데이터를 찾을 수 없습니다. (ID 매칭 실패)"
+            
             row_idx = match_list[0]
-        else:
-            # 비상 수색: 번지/층/면적으로 찾기 (숫자 형식 무시 로직)
-            v_keys = [k for k in ['번지', '층', '면적'] if k in sheet_data.columns]
-            for idx, row in sheet_data.iterrows():
-                is_match = True
-                for k in v_keys:
-                    try:
-                        if float(re.sub(r'[^0-9.-]', '', str(row.get(k, '')))) != float(re.sub(r'[^0-9.-]', '', str(updated_row.get(k, '')))):
-                            is_match = False; break
-                    except:
-                        if str(row.get(k, '')).strip() != str(updated_row.get(k, '')).strip():
-                            is_match = False; break
-                if is_match: row_idx = idx; break
-
-        if row_idx is None: return False, "❌ 매칭 실패: 데이터 일치 항목 없음"
-
-        for k, v in updated_row.items():
-            if k in sheet_data.columns and k not in ['선택']:
-                if k in NUMERIC_COLS:
-                    try: v = float(re.sub(r'[^0-9.-]', '', str(v)))
-                    except: v = 0.0
-                sheet_data.at[row_idx, k] = v
-        
-        conn.update(spreadsheet=SHEET_URL, worksheet=sheet_name, data=sheet_data)
-        return True, "✅ 저장 성공!"
-    except Exception as e: return False, f"저장 실패: {str(e)}"
+            
+            # 4. 값 덮어쓰기 (선택/IronID 제외)
+            for k, v in updated_row.items():
+                if k in sheet_data.columns and k not in ['선택', 'IronID']:
+                    # 숫자 컬럼인 경우 정제 후 소수점 처리
+                    if k in NUMERIC_COLS:
+                        try:
+                            val_str = re.sub(r'[^0-9.-]', '', str(v)) if v else "0"
+                            v = float(val_str) if val_str else 0.0
+                        except: v = 0.0
+                    sheet_data.at[row_idx, k] = v
+            
+            # 5. 저장
+            conn.update(spreadsheet=SHEET_URL, worksheet=sheet_name, data=sheet_data)
+            return True, "✅ 정보가 안전하게 저장되었습니다."
+            
+        except Exception as e:
+            return False, f"매칭 오류: {str(e)}"
+            
+    except Exception as e:
+        return False, f"저장 실패: {str(e)}"
 
 def save_updates_to_sheet(edited_df, original_df, sheet_name):
     """
@@ -352,9 +353,3 @@ def execute_transaction(action_type, target_rows, source_sheet, target_sheet=Non
             
     except Exception as e: 
         return False, str(e), traceback.format_exc()
-
-
-
-
-
-
