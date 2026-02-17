@@ -1,6 +1,6 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Control Tower (v24.95 Final Assembly)
-# Feature: Smart Filters, Module Separation, State Management
+# 범공인 Pro v24 Enterprise - Main Control Tower (v24.96 Final Assembly)
+# Feature: Smart Filters, Module Separation, State Management, View Mode Preservation
 
 import streamlit as st
 import pandas as pd
@@ -12,7 +12,7 @@ import styles            # 스타일 모듈
 # ==============================================================================
 # [INIT] 시스템 초기화 및 상태 관리
 # ==============================================================================
-st.set_page_config(page_title="범공인 Pro (v24.95)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="범공인 Pro (v24.96)", layout="wide", initial_sidebar_state="expanded")
 styles.apply_custom_css()
 
 # 1. 필수 상태 변수 초기화 (앱 구동 시 1회 실행)
@@ -58,8 +58,12 @@ with st.sidebar:
             st.session_state.page_num = 1
             st.session_state.selected_item = None
             if 'df_main' in st.session_state: del st.session_state.df_main
+            
             # 필터 상태 리셋 (체크박스 등)
+            # 주의: 여기서 view_mode는 리셋하지 않음
+            current_view = st.session_state.view_mode
             engine.safe_reset() 
+            st.session_state.view_mode = current_view
             st.rerun()
 
     # 데이터 로드 (캐싱 활용)
@@ -122,6 +126,7 @@ with st.sidebar:
     # [D] 상세 금액/면적 필터 (임대/매매 분기)
     is_sale_mode = "매매" in st.session_state.current_sheet
     with st.expander("💰 상세 설정 (금액/면적)", expanded=False):
+        # [문제 10번 해결] 필터 범위 확장 (테스트 매물 누락 방지)
         MAX_P = 10000000.0 # 1000억
         MAX_A = 1000000.0  # 100만평
         
@@ -134,6 +139,11 @@ with st.sidebar:
             c3, c4 = st.columns(2)
             c3.number_input("최소 대지", key='min_land', value=sess('min_land'))
             c4.number_input("최대 대지", key='max_land', value=sess('max_land'), max_value=MAX_A)
+            
+            c5, c6 = st.columns(2)
+            c5.number_input("최소 수익률", key='min_rent', value=0.0) # 임시 매핑
+            c6.number_input("최대 수익률", key='max_rent', value=100.0) # 임시 매핑
+            
         else:
             # 임대 모드
             c1, c2 = st.columns(2)
@@ -151,18 +161,21 @@ with st.sidebar:
             st.checkbox("🚫 무권리만 보기", key='is_no_kwon')
 
         st.divider()
-        # 공통 필터 (면적/층)
+        # 공통 필터 (면적/층 - 음수 허용)
         c1, c2 = st.columns(2)
-        c1.number_input("최소 면적", key='min_area', value=sess('min_area'))
-        c2.number_input("최대 면적", key='max_area', value=sess('max_area'), max_value=MAX_A)
+        c1.number_input("최소 실면적", key='min_area', value=sess('min_area'))
+        c2.number_input("최대 실면적", key='max_area', value=sess('max_area'), max_value=MAX_A)
         
         c3, c4 = st.columns(2)
-        c3.number_input("최저 층", key='min_fl', value=0.0, min_value=-10.0)
-        c4.number_input("최고 층", key='max_fl', value=100.0, max_value=200.0)
+        c3.number_input("최저 층", key='min_fl', value=-10.0, step=1.0)
+        c4.number_input("최고 층", key='max_fl', value=100.0, step=1.0)
     
     st.divider()
+    # [문제 9번 해결] 필터 초기화 시 보기 모드 유지
     if st.button("🔄 필터 초기화", use_container_width=True): 
+        current_view = st.session_state.view_mode
         engine.safe_reset()
+        st.session_state.view_mode = current_view
         st.rerun()
         
     st.markdown("---")
@@ -179,9 +192,9 @@ st.title("🏙️ 범공인 매물장 (Pro)")
 
 # [E] 화면 분기 로직 (이중 레이어)
 if st.session_state.selected_item is not None:
-    # 상세 페이지 (Detail Renderer에 위임)
+    # 상세 보기 모드 (detail_renderer 호출)
     detail_renderer.render_detail_view(st.session_state.selected_item)
 else:
-    # 목록 페이지 (List Renderer에 위임)
+    # 목록 보기 모드 (list_renderer 호출)
     # 필터링 상태는 session_state를 통해 공유됨
     list_renderer.show_main_list()
