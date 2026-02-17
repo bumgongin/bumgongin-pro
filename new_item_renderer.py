@@ -1,6 +1,6 @@
 # new_item_renderer.py
-# 범공인 Pro v24 Enterprise - New Item Entry Module (v24.97)
-# Feature: Single Column Layout, Smart Form, Validation, Auto-Save
+# 범공인 Pro v24 Enterprise - New Item Entry Module (v24.98 Precision Split)
+# Feature: Smart Facility Section, Mode-Specific Fields, Auto-Save
 
 import streamlit as st
 import pandas as pd
@@ -9,7 +9,7 @@ import core_engine as engine
 
 def render_new_item_form():
     """
-    신규 매물 등록 인터페이스 (1열 배치 & 모바일 최적화)
+    신규 매물 등록 인터페이스 (1열 배치 & 모바일 최적화 & 시설 분기)
     """
     # [A] 상단 네비게이션
     st.subheader("📝 신규 매물 등록")
@@ -28,6 +28,9 @@ def render_new_item_form():
 
     # [C] 입력 폼 시작
     with st.form("new_entry_form"):
+        # ---------------------------------------------------------
+        # SECTION 1: 기본 정보
+        # ---------------------------------------------------------
         st.markdown("#### 1. 기본 정보")
         
         # 데이터 수집용 딕셔너리
@@ -46,7 +49,7 @@ def render_new_item_form():
             input_data['해당층'] = st.text_input("해당층")
             input_data['호실'] = st.text_input("호실")
             
-            # 숫자형 데이터 (공란 허용)
+            # 숫자형 데이터 (공란 허용, 조 단위)
             MAX_VAL = 999999999999.0
             input_data['매매가'] = st.number_input("매매가 (만원)", value=None, step=1000.0, max_value=MAX_VAL)
             input_data['대지면적'] = st.number_input("대지면적 (평)", value=None, step=1.0, max_value=MAX_VAL)
@@ -71,24 +74,45 @@ def render_new_item_form():
         input_data['연락처'] = st.text_input("연락처 (010-0000-0000)")
 
         st.divider()
+        
+        # ---------------------------------------------------------
+        # SECTION 2: 시설 및 내용 (지능형 분기)
+        # ---------------------------------------------------------
         st.markdown("#### 2. 시설 및 내용")
         
-        # [공통 시설/내용]
-        input_data['주용도'] = st.text_input("주용도")
-        input_data['주차'] = st.text_input("주차")
-        input_data['EV'] = st.text_input("EV (승강기)")
-        input_data['화장실'] = st.text_input("화장실")
-        input_data['층고'] = st.text_input("층고 (m)")
-        input_data['현업종'] = st.text_input("현업종")
+        if is_sale_mode:
+            # [매매 전용 시설 항목]
+            input_data['주용도'] = st.text_input("주용도")
+            
+            # 매매는 기존 임대차 정보가 중요함
+            MAX_VAL = 999999999999.0
+            input_data['기보증금'] = st.number_input("기보증금 (만원)", value=None, step=100.0, max_value=MAX_VAL)
+            input_data['기월세'] = st.number_input("기월세 (만원)", value=None, step=10.0, max_value=MAX_VAL)
+            input_data['관리비'] = st.number_input("관리비 (만원)", value=None, step=5.0, max_value=MAX_VAL)
+            
+            input_data['주차'] = st.text_input("주차")
+            input_data['EV'] = st.text_input("EV (승강기)")
+            input_data['현업종'] = st.text_input("현업종")
+            
+        else:
+            # [임대 전용 시설 항목]
+            input_data['현업종'] = st.text_input("현업종")
+            input_data['주차'] = st.text_input("주차")
+            input_data['화장실'] = st.text_input("화장실")
+            input_data['EV'] = st.text_input("E/V (승강기)")
+            input_data['층고'] = st.text_input("층고 (m)")
         
-        # 텍스트 영역 (넓게)
+        # [공통 텍스트 영역]
         input_data['매물특징'] = st.text_area("매물특징 (브리핑용)", height=150, placeholder="손님에게 보여질 매물의 특징을 입력하세요.")
         input_data['특이사항'] = st.text_area("특이사항 (내부용)", height=100, placeholder="비밀번호, 임대인 성향 등 내부 정보를 입력하세요.")
 
         st.divider()
+        
+        # ---------------------------------------------------------
+        # SECTION 3: 행정 및 광고
+        # ---------------------------------------------------------
         st.markdown("#### 3. 행정 및 광고")
         
-        # [공통 행정/광고]
         input_data['접수경로'] = st.text_input("접수경로")
         input_data['접수일'] = st.text_input("접수일 (YYYY-MM-DD)")
         input_data['사진'] = st.text_input("사진 링크 (URL)")
