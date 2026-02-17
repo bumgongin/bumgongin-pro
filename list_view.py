@@ -223,62 +223,139 @@ def render_action_bar():
         st.rerun()
 
 def render_detail_view(item):
-    """상세 페이지 (4단 탭 + 지도)"""
+    """상세 페이지 (4단 탭 + 지도 + 모바일 연락처)"""
     st.button("◀ 목록으로 돌아가기", on_click=lambda: st.session_state.update(selected_item=None))
     
+    # 헤더
     st.subheader(f"🏠 {item.get('건물명', '매물 상세')}")
     
+    # 2단 레이아웃 (지도 / 탭)
     c_left, c_right = st.columns([1, 1.2])
     
+    # [왼쪽] 지도 및 위치 정보
     with c_left:
-        # 지도 영역
         addr = f"{item.get('지역_구')} {item.get('지역_동')} {item.get('번지')}"
         st.info(f"📍 {addr}")
+        
+        # 지도 이미지 호출
         lat, lng = map_api.get_naver_geocode(addr)
         if lat and lng:
-            img_data = map_api.fetch_map_image(lat, lng, height=400) # 상세페이지 지도 높이
+            # PC에서는 height=800, 모바일에서는 기본값(300) 적용 (반응형 대응은 추후 고도화)
+            # 여기서는 기본값 사용
+            img_data = map_api.fetch_map_image(lat, lng, height=400)
             if img_data: st.image(img_data, use_container_width=True)
+            
+            # 네이버 지도 바로가기 버튼
+            naver_url = f"https://map.naver.com/v5/search/{addr}?c={lng},{lat},17,0,0,0,dh"
+            st.link_button("🗺️ 네이버 지도 앱에서 열기", naver_url, use_container_width=True)
         else:
             st.error("위치 정보를 찾을 수 없습니다.")
 
+    # [오른쪽] 4단 탭 상세 정보
     with c_right:
-        # 4단 탭 구성
-        t1, t2, t3, t4 = st.tabs(["📝 기본", "📑 시설", "📁 관리", "💬 브리핑"])
+        t1, t2, t3, t4 = st.tabs(["📝 기본/주소", "📑 시설/내용", "📁 기타 정보", "💬 브리핑"])
         
-        # 탭1: 기본 정보
+        # 탭1: 기본 정보 (수정 가능)
         with t1:
-            with st.form("f1"):
-                cols = ['구분', '매매가' if '매매가' in item else '보증금', '월차임', '권리금', '면적', '층']
-                new_vals = {}
-                for c in cols:
-                    if c in item: new_vals[c] = st.text_input(c, value=str(item[c]))
-                if st.form_submit_button("저장"):
-                    item.update(new_vals)
-                    engine.update_single_row(item, st.session_state.current_sheet)
-                    st.rerun()
-        
-        # 탭2: 시설 상세
-        with t2:
-            with st.form("f2"):
-                cols = ['호실', '현업종', '주차', 'E/V', '화장실', '특이사항']
-                new_vals2 = {}
-                for c in cols:
-                    if c in item: new_vals2[c] = st.text_input(c, value=str(item.get(c,'')))
-                if st.form_submit_button("시설 저장"):
-                    item.update(new_vals2)
-                    engine.update_single_row(item, st.session_state.current_sheet)
-                    st.rerun()
+            with st.form("form_basic"):
+                # 요청 항목: 구분, 지역_구, 지역_동, 번지, 층, 호실, 보증금, 월차임, 관리비, 권리금, 면적, 연락처
+                cols_basic = ['구분', '지역_구', '지역_동', '번지', '층', '호실', '보증금', '월차임', '관리비', '권리금', '면적', '연락처']
+                updates_basic = {}
+                
+                # 2열 배치로 깔끔하게
+                c_f1, c_f2 = st.columns(2)
+                for i, col in enumerate(cols_basic):
+                    val = str(item.get(col, '')).replace('nan', '')
+                    target_col = c_f1 if i % 2 == 0 else c_f2
+                    updates_basic[col] = target_col.text_input(col, value=val)
+                
+                # [모바일 터치 기능] 연락처 버튼 생성
+                contact_num = updates_basic.get('연락처')
+                if contact_num:
+                    import re # 정규식 모듈 필요 (상단 import에 없다면 추가 필요)
+                    c_call, c_sms = st.columns(2)
+                    # 전화번호 정제 (숫자만 추출)
+                    clean_num = re.sub(r'[^0-9]', '', contact_num) if contact_num else ""
+                    if clean_num:
+                        c_call.markdown(f'<a href="tel:{clean_num}" target="_self" style="text-decoration:none;"><button style="width:100%; border:1px solid #ddd; padding:5px; border-radius:5px;">📞 전화 걸기</button></a>', unsafe_allow_html=True)
+                        c_sms.markdown(f'<a href="sms:{clean_num}" target="_self" style="text-decoration:none;"><button style="width:100%; border:1px solid #ddd; padding:5px; border-radius:5px;">💬 문자 보내기</button></a>', unsafe_allow_html=True)
 
-        # 탭3: 접수/광고
+                if st.form_submit_button("💾 기본정보 저장", use_container_width=True):
+                    item.update(updates_basic)
+                    success, msg = engine.update_single_row(item, st.session_state.current_sheet)
+                    if success:
+                        st.success(msg)
+                        time.sleep(1)
+                        if 'df_main' in st.session_state: del st.session_state.df_main
+                        st.rerun()
+                    else:
+                        st.error(msg)
+        
+        # 탭2: 시설 상세 (수정 가능)
+        with t2:
+            with st.form("form_facility"):
+                # 요청 항목: 현업종, 주차, 화장실, E/V, 층고, 특이사항, 내용
+                cols_fac = ['현업종', '주차', '화장실', 'E/V', '층고']
+                cols_area = ['특이사항', '내용']
+                
+                updates_fac = {}
+                c_fac1, c_fac2 = st.columns(2)
+                
+                for i, col in enumerate(cols_fac):
+                    val = str(item.get(col, '')).replace('nan', '')
+                    target_col = c_fac1 if i % 2 == 0 else c_fac2
+                    updates_fac[col] = target_col.text_input(col, value=val)
+                
+                # 텍스트 영역 (넓게)
+                for col in cols_area:
+                    val = str(item.get(col, '')).replace('nan', '')
+                    updates_fac[col] = st.text_area(col, value=val, height=100)
+                
+                if st.form_submit_button("💾 시설정보 저장", use_container_width=True):
+                    item.update(updates_fac)
+                    success, msg = engine.update_single_row(item, st.session_state.current_sheet)
+                    if success:
+                        st.success(msg)
+                        time.sleep(1)
+                        if 'df_main' in st.session_state: del st.session_state.df_main
+                        st.rerun()
+                    else:
+                        st.error(msg)
+
+        # 탭3: 기타 정보 (읽기 전용/일부 수정 가능)
         with t3:
-             st.text_input("접수경로", value=str(item.get('접수경로','')), disabled=True)
-             st.text_input("연락처", value=str(item.get('연락처','')), disabled=True)
-             # 여기에 광고 체크박스 등 추가 가능
+            # 요청 항목: 접수경로, 접수일, 사진, 광고_포스, 광고_모두, 광고_블로그, 사용승인일, 건축물용도
+            cols_etc = ['접수경로', '접수일', '사진', '광고_포스', '광고_모두', '광고_블로그', '사용승인일', '건축물용도']
+            
+            with st.form("form_etc"):
+                updates_etc = {}
+                for col in cols_etc:
+                     val = str(item.get(col, '')).replace('nan', '')
+                     updates_etc[col] = st.text_input(col, value=val)
+                
+                if st.form_submit_button("💾 기타정보 저장", use_container_width=True):
+                    item.update(updates_etc)
+                    engine.update_single_row(item, st.session_state.current_sheet)
+                    st.success("저장되었습니다.")
+                    time.sleep(1)
+                    del st.session_state.df_main
+                    st.rerun()
 
         # 탭4: 브리핑 생성
         with t4:
-            txt = f"""[매물 브리핑]
-위치: {addr}
-금액: {item.get('보증금','-')}/{item.get('월차임','-')}
-특징: {item.get('특이사항','-')}"""
-            st.text_area("복사용 텍스트", value=txt, height=200)
+            area_py = item.get('면적', '-')
+            deposit = item.get('보증금', '-')
+            rent = item.get('월차임', '-')
+            man = item.get('관리비', '-')
+            
+            # 브리핑 텍스트 자동 생성
+            brief_txt = f"""[매물 브리핑]
+📍 위치: {addr}
+🏢 건물: {item.get('건물명', '-')} ({item.get('층', '-')}층)
+📐 면적: {area_py}평
+💰 금액: 보 {deposit} / 월 {rent} / 관 {man}
+📝 특징: {item.get('내용', '-')}
+
+📞 문의: 범공인중개사"""
+            
+            st.text_area("복사용 텍스트 (전체 선택 후 복사하세요)", value=brief_txt, height=250)
