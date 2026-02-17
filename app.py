@@ -1,18 +1,19 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Control Tower (v24.97 Final Assembly)
-# Feature: Clean UI (Null Value), Infinite Range, Intelligent Reset, Strong Sync
+# 범공인 Pro v24 Enterprise - Main Control Tower (v24.98 Final Integrated)
+# Feature: 3-Way Branching (List/Detail/New), Smart Sidebar, Strong Sync
 
 import streamlit as st
 import pandas as pd
 import core_engine as engine
 import list_renderer     # 목록 렌더링 전담
 import detail_renderer   # 상세 보기 전담
+import new_item_renderer # 신규 등록 전담 (New)
 import styles            # 스타일 모듈
 
 # ==============================================================================
 # [INIT] 시스템 초기화 및 상태 관리
 # ==============================================================================
-st.set_page_config(page_title="범공인 Pro (v24.97)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="범공인 Pro (v24.98)", layout="wide", initial_sidebar_state="expanded")
 styles.apply_custom_css()
 
 # 1. 필수 상태 변수 초기화
@@ -21,6 +22,9 @@ if 'selected_item' not in st.session_state: st.session_state.selected_item = Non
 if 'view_mode' not in st.session_state: st.session_state.view_mode = '🗂️ 카드 모드'
 if 'page_num' not in st.session_state: st.session_state.page_num = 1
 if 'editor_key_version' not in st.session_state: st.session_state.editor_key_version = 0
+
+# [New] 신규 등록 모드 상태 변수
+if 'is_adding_new' not in st.session_state: st.session_state.is_adding_new = False
 
 # 2. 스마트 필터 UI 토글 상태 초기화
 if 'show_cat_search' not in st.session_state: st.session_state.show_cat_search = False
@@ -43,8 +47,16 @@ def reset_page():
 with st.sidebar:
     st.header("📂 관리 도구")
     
-    # [A] 시트 선택 및 데이터 로드
+    # [A] 작업 시트 및 등록 버튼
     with st.container(border=True):
+        # [신규 등록 버튼] - 최상단 배치
+        if st.button("➕ 신규 매물 등록", use_container_width=True, type="primary"):
+            st.session_state.selected_item = None
+            st.session_state.is_adding_new = True
+            st.rerun()
+            
+        st.divider()
+        
         st.markdown("##### 📄 작업 시트")
         try: curr_idx = engine.SHEET_NAMES.index(st.session_state.current_sheet)
         except: curr_idx = 0
@@ -56,13 +68,16 @@ with st.sidebar:
             label_visibility="collapsed"
         )
         
-        # 시트 변경 감지 및 강제 리셋 (데이터 강제 동기화)
+        # 시트 변경 감지 및 강제 리셋
         if selected_sheet != st.session_state.current_sheet:
             st.session_state.current_sheet = selected_sheet
             st.session_state.page_num = 1
             st.session_state.selected_item = None
             
-            # [중요] 데이터 강제 갱신을 위해 세션 삭제 및 캐시 클리어
+            # [중요] 시트 변경 시 등록 모드 해제
+            st.session_state.is_adding_new = False
+            
+            # 데이터 강제 갱신을 위해 세션 삭제 및 캐시 클리어
             if 'df_main' in st.session_state: del st.session_state.df_main
             st.cache_data.clear()
             
@@ -130,7 +145,6 @@ with st.sidebar:
     st.write("")
     
     # [D] 상세 금액/면적 필터 (임대/매매 분기)
-    # value=None으로 설정하여 공란(Clean UI) 구현, max_value는 조 단위 설정
     MAX_VAL = 999999999999.0 
     
     is_sale_mode = "매매" in st.session_state.current_sheet
@@ -180,11 +194,8 @@ with st.sidebar:
     st.divider()
     # [보기 모드 보존 로직]
     if st.button("🔄 필터 초기화", use_container_width=True): 
-        # 1. 보기 모드 백업
         backup_view = st.session_state.view_mode
-        # 2. 엔진 리셋 (필터값 초기화)
         engine.safe_reset()
-        # 3. 보기 모드 복원 및 페이지 초기화
         st.session_state.view_mode = backup_view
         st.session_state.page_num = 1
         st.rerun()
@@ -197,15 +208,16 @@ with st.sidebar:
         st.rerun()
 
 # ==============================================================================
-# [MAIN CONTENT] - 뇌 (Brain)
+# [MAIN CONTENT] - 뇌 (Brain / 3-Way Branching)
 # ==============================================================================
 st.title("🏙️ 범공인 매물장 (Pro)")
 
-# [E] 화면 분기 로직 (이중 레이어)
 if st.session_state.selected_item is not None:
-    # 상세 보기 모드 (detail_renderer 호출)
+    # 1. 상세 보기 모드
     detail_renderer.render_detail_view(st.session_state.selected_item)
+elif st.session_state.is_adding_new:
+    # 2. 신규 등록 모드
+    new_item_renderer.render_new_item_form()
 else:
-    # 목록 보기 모드 (list_renderer 호출)
-    # 필터링 상태는 session_state를 통해 공유됨
+    # 3. 목록 보기 모드 (기본)
     list_renderer.show_main_list()
