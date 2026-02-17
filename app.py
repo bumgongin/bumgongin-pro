@@ -1,6 +1,6 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Control Tower (v24.96 Final Assembly)
-# Feature: Smart Filters, Module Separation, State Management, View Mode Preservation
+# 범공인 Pro v24 Enterprise - Main Control Tower (v24.96 Precision Refined)
+# Feature: View Mode Protection, Yield Filter, Infinite Range, Strong Sync
 
 import streamlit as st
 import pandas as pd
@@ -27,11 +27,15 @@ if 'show_cat_search' not in st.session_state: st.session_state.show_cat_search =
 if 'show_gu_search' not in st.session_state: st.session_state.show_gu_search = False
 if 'show_dong_search' not in st.session_state: st.session_state.show_dong_search = False
 
-# 3. 검색 엔진 상태 초기화 (검색어, 필터 값 등)
+# 3. 수익률 필터 전용 키 초기화 (매매 모드용)
+if 'min_yield' not in st.session_state: st.session_state.min_yield = 0.0
+if 'max_yield' not in st.session_state: st.session_state.max_yield = 100.0
+
+# 4. 검색 엔진 상태 초기화 (나머지 필터 값 등)
 engine.initialize_search_state()
 
 # 세션 값 단축 접근 함수
-def sess(key): return st.session_state[key]
+def sess(key): return st.session_state.get(key)
 
 # ==============================================================================
 # [SIDEBAR] 필터링 컨트롤 타워
@@ -52,15 +56,16 @@ with st.sidebar:
             label_visibility="collapsed"
         )
         
-        # 시트 변경 감지 및 리셋
+        # 시트 변경 감지 및 강제 리셋
         if selected_sheet != st.session_state.current_sheet:
             st.session_state.current_sheet = selected_sheet
             st.session_state.page_num = 1
             st.session_state.selected_item = None
+            
+            # [중요] 데이터 강제 갱신을 위해 캐시 삭제
             if 'df_main' in st.session_state: del st.session_state.df_main
             
-            # 필터 상태 리셋 (체크박스 등)
-            # 주의: 여기서 view_mode는 리셋하지 않음
+            # 필터 상태 리셋 (체크박스 등) - 보기 모드는 유지
             current_view = st.session_state.view_mode
             engine.safe_reset() 
             st.session_state.view_mode = current_view
@@ -126,45 +131,45 @@ with st.sidebar:
     # [D] 상세 금액/면적 필터 (임대/매매 분기)
     is_sale_mode = "매매" in st.session_state.current_sheet
     with st.expander("💰 상세 설정 (금액/면적)", expanded=False):
-        # [문제 10번 해결] 필터 범위 확장 (테스트 매물 누락 방지)
-        MAX_P = 10000000.0 # 1000억
-        MAX_A = 1000000.0  # 100만평
+        # [문제 10번 해결] 필터 범위 무한 확장 (1000억 이상)
+        MAX_VAL = 100000000.0 
         
         if is_sale_mode:
             # 매매 모드
             c1, c2 = st.columns(2)
             c1.number_input("최소 매가", key='min_price', value=sess('min_price'))
-            c2.number_input("최대 매가", key='max_price', value=sess('max_price'), max_value=MAX_P)
+            c2.number_input("최대 매가", key='max_price', value=sess('max_price'), max_value=MAX_VAL)
             
             c3, c4 = st.columns(2)
             c3.number_input("최소 대지", key='min_land', value=sess('min_land'))
-            c4.number_input("최대 대지", key='max_land', value=sess('max_land'), max_value=MAX_A)
+            c4.number_input("최대 대지", key='max_land', value=sess('max_land'), max_value=MAX_VAL)
             
+            # [수익률 전용 필터]
             c5, c6 = st.columns(2)
-            c5.number_input("최소 수익률", key='min_rent', value=0.0) # 임시 매핑
-            c6.number_input("최대 수익률", key='max_rent', value=100.0) # 임시 매핑
+            c5.number_input("최소 수익률", key='min_yield', value=0.0, step=0.1)
+            c6.number_input("최대 수익률", key='max_yield', value=100.0, step=0.1)
             
         else:
             # 임대 모드
             c1, c2 = st.columns(2)
             c1.number_input("최소 보증", key='min_dep', value=sess('min_dep'))
-            c2.number_input("최대 보증", key='max_dep', value=sess('max_dep'), max_value=MAX_P)
+            c2.number_input("최대 보증", key='max_dep', value=sess('max_dep'), max_value=MAX_VAL)
             
             c3, c4 = st.columns(2)
             c3.number_input("최소 월세", key='min_rent', value=sess('min_rent'))
-            c4.number_input("최대 월세", key='max_rent', value=sess('max_rent'), max_value=MAX_P)
+            c4.number_input("최대 월세", key='max_rent', value=sess('max_rent'), max_value=MAX_VAL)
             
             c7, c8 = st.columns(2)
             c7.number_input("최소 권리", key='min_kwon', value=sess('min_kwon'))
-            c8.number_input("최대 권리", key='max_kwon', value=sess('max_kwon'), max_value=MAX_P)
+            c8.number_input("최대 권리", key='max_kwon', value=sess('max_kwon'), max_value=MAX_VAL)
             
             st.checkbox("🚫 무권리만 보기", key='is_no_kwon')
 
         st.divider()
-        # 공통 필터 (면적/층 - 음수 허용)
+        # 공통 필터 (면적/층 - 정밀 소수점 허용)
         c1, c2 = st.columns(2)
-        c1.number_input("최소 실면적", key='min_area', value=sess('min_area'))
-        c2.number_input("최대 실면적", key='max_area', value=sess('max_area'), max_value=MAX_A)
+        c1.number_input("최소 실면적", key='min_area', value=sess('min_area'), step=1.0)
+        c2.number_input("최대 실면적", key='max_area', value=sess('max_area'), max_value=MAX_VAL, step=1.0)
         
         c3, c4 = st.columns(2)
         c3.number_input("최저 층", key='min_fl', value=-10.0, step=1.0)
@@ -173,9 +178,13 @@ with st.sidebar:
     st.divider()
     # [문제 9번 해결] 필터 초기화 시 보기 모드 유지
     if st.button("🔄 필터 초기화", use_container_width=True): 
-        current_view = st.session_state.view_mode
+        # 1. 보기 모드 백업
+        backup_view = st.session_state.view_mode
+        # 2. 엔진 리셋 (필터값 초기화)
         engine.safe_reset()
-        st.session_state.view_mode = current_view
+        # 3. 보기 모드 복원 및 페이지 초기화
+        st.session_state.view_mode = backup_view
+        st.session_state.page_num = 1
         st.rerun()
         
     st.markdown("---")
