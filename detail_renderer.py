@@ -1,6 +1,6 @@
 # detail_renderer.py
-# 범공인 Pro v24 Enterprise - Detail View Engine (v24.96 Final Refined)
-# Feature: Single Column Layout, Unified Terminology, Naver Map Base
+# 범공인 Pro v24 Enterprise - Detail View Engine (v24.97 Live Sync)
+# Feature: Real-time Memory Injection, Single Column Layout, Naver Map Base
 
 import streamlit as st
 import pandas as pd
@@ -17,9 +17,11 @@ def render_detail_view(item):
     # [A] 상단 네비게이션 및 데이터 정제
     if st.button("◀ 목록으로 돌아가기"):
         st.session_state.selected_item = None
+        # 페이지 번호(page_num)는 유지하여 원래 위치로 복귀
         st.rerun()
 
     # 데이터 정제 (NaN -> 공백)
+    # 주의: item은 딕셔너리 형태여야 함
     item = {k: (str(v).replace('nan', '') if pd.notna(v) else '') for k, v in item.items()}
     current_sheet = st.session_state.current_sheet
     is_sale_mode = "매매" in current_sheet
@@ -135,9 +137,11 @@ def render_detail_view(item):
 
                 st.write("")
                 if st.form_submit_button("💾 기본정보 저장", use_container_width=True):
+                    # 1. 서버 저장
                     item.update(updates_basic)
                     success, msg = engine.update_single_row(item, current_sheet)
-                    handle_save_result(success, msg)
+                    # 2. 결과 처리 및 메모리 주입
+                    handle_save_result(success, msg, updates_basic)
 
         # [TAB 2] 시설/내용 수정 (1열 배치 - 모바일 최적화)
         with t2:
@@ -164,7 +168,7 @@ def render_detail_view(item):
                 if st.form_submit_button("💾 시설정보 저장", use_container_width=True):
                     item.update(updates_fac)
                     success, msg = engine.update_single_row(item, current_sheet)
-                    handle_save_result(success, msg)
+                    handle_save_result(success, msg, updates_fac)
 
         # [TAB 3] 기타 정보 (1열 배치 - 모바일 최적화)
         with t3:
@@ -179,16 +183,16 @@ def render_detail_view(item):
                 if st.form_submit_button("💾 기타정보 저장", use_container_width=True):
                     item.update(updates_etc)
                     success, msg = engine.update_single_row(item, current_sheet)
-                    handle_save_result(success, msg)
+                    handle_save_result(success, msg, updates_etc)
 
-        # [TAB 4] 카톡 브리핑 생성 (자동 완성)
+        # [TAB 4] 카톡 브리핑 생성 (자동 완성 - 실시간 반영)
         with t4:
             st.markdown("##### 💬 카톡 브리핑 생성기")
             
             # 인프라 정보 가져오기 (세션에 저장된 값 활용)
             sub_txt = st.session_state.get('last_subway_info', '')
             
-            # 브리핑 데이터 조립
+            # 브리핑 데이터 조립 (메모리 주입된 item 사용)
             b_loc = f"{item.get('지역_구','')} {item.get('지역_동','')}{sub_txt}"
             b_name = f"{item.get('건물명','')} ({item.get('층','')}층)"
             
@@ -265,11 +269,17 @@ def render_smart_action_bar(item, sheet_name, is_sale):
             engine.execute_transaction("delete", target_df, sheet_name)
             reset_and_close()
 
-def handle_save_result(success, msg):
-    """저장 결과 처리 헬퍼"""
+def handle_save_result(success, msg, updates):
+    """
+    저장 결과 처리 및 메모리 즉시 주입 (Live Sync)
+    """
     if success:
         st.success("✅ 저장되었습니다!")
-        time.sleep(1.0)
+        # [핵심] 현재 보고 있는 selected_item 객체에 수정된 값을 즉시 주입 (메모리 갱신)
+        if st.session_state.selected_item is not None:
+            st.session_state.selected_item.update(updates)
+        
+        time.sleep(0.5)
         # 데이터 갱신을 위해 캐시 삭제
         if 'df_main' in st.session_state: 
             del st.session_state.df_main
