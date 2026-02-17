@@ -1,6 +1,6 @@
 # detail_renderer.py
-# 범공인 Pro v24 Enterprise - Detail View Engine (v24.95 Final)
-# Feature: Precision Form Fields, Commercial Analysis, Smart Action Bar, Zoom Control
+# 범공인 Pro v24 Enterprise - Detail View Engine (v24.96 Final Refined)
+# Feature: Single Column Layout, Unified Terminology, Naver Map Base
 
 import streamlit as st
 import pandas as pd
@@ -28,9 +28,9 @@ def render_detail_view(item):
     addr_full = f"{item.get('지역_구', '')} {item.get('지역_동', '')} {item.get('번지', '')}".strip()
     lat, lng = map_api.get_naver_geocode(addr_full)
     
-    # 줌 레벨 초기화
+    # 줌 레벨 초기화 (네이버 지도 최적값 17)
     if 'map_zoom' not in st.session_state:
-        st.session_state.map_zoom = 14
+        st.session_state.map_zoom = 17
 
     st.subheader(f"🏠 {item.get('건물명', '매물 상세 정보')}")
 
@@ -70,8 +70,15 @@ def render_detail_view(item):
                         # 1. 지하철 정보
                         sub = infra_data.get('subway', {})
                         if sub.get('station') and sub['station'] != "정보 없음":
-                             st.success(f"🚇 **{sub['station']}** ({sub.get('line','')}) : 도보 약 {int(sub.get('walk', 0))}분 ({int(sub.get('dist', 0))}m)")
-                        
+                             # 도보 거리 산식 보수적 적용 (네이버 지도 기준)
+                             w_min = int(round(sub.get('walk', 0)))
+                             if w_min == 0: w_min = 1
+                             st.success(f"🚇 **{sub['station']}** ({sub.get('line','')}) : 도보 약 {w_min}분 ({int(sub.get('dist', 0))}m)")
+                             # 브리핑용 데이터 세션 저장
+                             st.session_state.last_subway_info = f" ({sub['station']} 도보 {w_min}분)"
+                        else:
+                             st.session_state.last_subway_info = ""
+
                         # 2. 분석 테이블 출력 (2열 배치)
                         tab_fac, tab_anchor = st.tabs(["편의 시설", "앵커 브랜드"])
                         
@@ -88,9 +95,6 @@ def render_detail_view(item):
                                 st.dataframe(anchor_df, use_container_width=True, hide_index=True)
                             else:
                                 st.info("주변 1km 이내 주요 브랜드가 없습니다.")
-                        
-                        # 브리핑용 데이터 세션 저장
-                        st.session_state.last_subway_info = f" ({sub['station']} 도보 {int(sub.get('walk', 0))}분)" if sub.get('station') else ""
                     else:
                         st.error("분석 데이터를 가져오지 못했습니다.")
         else:
@@ -100,39 +104,34 @@ def render_detail_view(item):
     with col_right:
         t1, t2, t3, t4 = st.tabs(["📝 기본/주소", "📑 시설/내용", "📁 기타 정보", "💬 브리핑"])
 
-        # [TAB 1] 기본 정보 (임대/매매 분기 - 폼 적용)
+        # [TAB 1] 기본 정보 (1열 배치 - 모바일 최적화)
         with t1:
             with st.form("form_basic"):
                 updates_basic = {}
                 
                 if is_sale_mode:
-                    # 매매 필드 (13개)
+                    # 매매 필드 (13개 - 1열 순차 배치)
                     fields_sale = ['구분', '지역_구', '지역_동', '번지', '해당층', '호실', 
                                    '매매가', '대지면적', '건축면적', '연면적', '전용면적', '수익률', '연락처']
-                    c1, c2 = st.columns(2)
-                    for i, col in enumerate(fields_sale):
-                        target = c1 if i % 2 == 0 else c2
-                        updates_basic[col] = target.text_input(col, value=item.get(col, ''))
+                    for col in fields_sale:
+                        updates_basic[col] = st.text_input(col, value=item.get(col, ''))
                 else:
-                    # 임대 필드 (12개)
+                    # 임대 필드 (12개 - 1열 순차 배치)
                     fields_rent = ['구분', '지역_구', '지역_동', '번지', '층', '호실', 
                                    '보증금', '월차임', '관리비', '권리금', '면적', '연락처']
-                    c1, c2 = st.columns(2)
-                    for i, col in enumerate(fields_rent):
-                        target = c1 if i % 2 == 0 else c2
-                        updates_basic[col] = target.text_input(col, value=item.get(col, ''))
+                    for col in fields_rent:
+                        updates_basic[col] = st.text_input(col, value=item.get(col, ''))
 
                 # 연락처 특수 기능 (전화/문자)
                 contact_val = updates_basic.get('연락처', '')
                 if contact_val:
-                    # 숫자만 추출
                     clean_num = re.sub(r'[^0-9]', '', contact_val)
                     if len(clean_num) >= 9:
                         bc1, bc2 = st.columns(2)
                         bc1.markdown(f'''<a href="tel:{clean_num}" target="_self" style="text-decoration:none;">
-                            <div style="text-align:center; background-color:#e8f0fe; padding:8px; border-radius:5px; border:1px solid #ccc; font-weight:bold;">📞 전화 걸기</div></a>''', unsafe_allow_html=True)
+                            <div style="text-align:center; background-color:#e8f0fe; padding:10px; border-radius:8px; border:1px solid #ccc; font-weight:bold;">📞 전화 걸기</div></a>''', unsafe_allow_html=True)
                         bc2.markdown(f'''<a href="sms:{clean_num}" target="_self" style="text-decoration:none;">
-                            <div style="text-align:center; background-color:#e8f0fe; padding:8px; border-radius:5px; border:1px solid #ccc; font-weight:bold;">💬 문자 보내기</div></a>''', unsafe_allow_html=True)
+                            <div style="text-align:center; background-color:#e8f0fe; padding:10px; border-radius:8px; border:1px solid #ccc; font-weight:bold;">💬 문자 보내기</div></a>''', unsafe_allow_html=True)
 
                 st.write("")
                 if st.form_submit_button("💾 기본정보 저장", use_container_width=True):
@@ -140,54 +139,49 @@ def render_detail_view(item):
                     success, msg = engine.update_single_row(item, current_sheet)
                     handle_save_result(success, msg)
 
-        # [TAB 2] 시설/내용 수정 (폼 적용)
+        # [TAB 2] 시설/내용 수정 (1열 배치 - 모바일 최적화)
         with t2:
             with st.form("form_facility"):
                 updates_fac = {}
                 
                 if is_sale_mode:
-                    # 매매 시설 필드 (8개)
+                    # 매매 시설 필드 (8개 - 1열 순차 배치)
                     fields_fac_sale = ['주용도', '기보증금', '기월세', '관리비', '주차', 'EV', '현업종']
-                    c1, c2 = st.columns(2)
-                    for i, col in enumerate(fields_fac_sale):
-                        target = c1 if i % 2 == 0 else c2
-                        updates_fac[col] = target.text_input(col, value=item.get(col, ''))
+                    for col in fields_fac_sale:
+                        updates_fac[col] = st.text_input(col, value=item.get(col, ''))
                     
-                    updates_fac['특이사항'] = st.text_area("특이사항", value=item.get('특이사항', ''), height=100)
+                    updates_fac['특이사항'] = st.text_area("특이사항 (내부용)", value=item.get('특이사항', ''), height=100)
                 else:
-                    # 임대 시설 필드 (7개)
+                    # 임대 시설 필드 (7개 - 1열 순차 배치)
                     fields_fac_rent = ['현업종', '주차', '화장실', 'E/V', '층고']
-                    c1, c2 = st.columns(2)
-                    for i, col in enumerate(fields_fac_rent):
-                        target = c1 if i % 2 == 0 else c2
-                        updates_fac[col] = target.text_input(col, value=item.get(col, ''))
+                    for col in fields_fac_rent:
+                        updates_fac[col] = st.text_input(col, value=item.get(col, ''))
                     
-                    updates_fac['특이사항'] = st.text_input("특이사항", value=item.get('특이사항', ''))
-                    updates_fac['내용'] = st.text_area("내용(특징)", value=item.get('내용', ''), height=150)
+                    updates_fac['특이사항'] = st.text_area("특이사항 (내부용)", value=item.get('특이사항', ''), height=100)
+                    # 용어 통일: '내용' -> '매물특징'
+                    updates_fac['매물특징'] = st.text_area("매물특징 (브리핑용)", value=item.get('매물특징', ''), height=150)
 
                 if st.form_submit_button("💾 시설정보 저장", use_container_width=True):
                     item.update(updates_fac)
                     success, msg = engine.update_single_row(item, current_sheet)
                     handle_save_result(success, msg)
 
-        # [TAB 3] 기타 정보 (모두 수정 가능)
+        # [TAB 3] 기타 정보 (1열 배치 - 모바일 최적화)
         with t3:
             with st.form("form_etc"):
                 updates_etc = {}
-                fields_etc = ['접수경로', '접수일', '사진', '광고_포스', '광고_모두', '광고_블로그', '사용승인일', '건축물용도', '매물특징']
+                fields_etc = ['접수경로', '접수일', '사진', '광고_포스', '광고_모두', '광고_블로그', '사용승인일', '건축물용도']
                 
-                c1, c2 = st.columns(2)
-                for i, col in enumerate(fields_etc):
+                for col in fields_etc:
                     val = item.get(col, '')
-                    target = c1 if i % 2 == 0 else c2
-                    updates_etc[col] = target.text_input(col, value=val)
+                    updates_etc[col] = st.text_input(col, value=val)
                 
                 if st.form_submit_button("💾 기타정보 저장", use_container_width=True):
                     item.update(updates_etc)
                     success, msg = engine.update_single_row(item, current_sheet)
                     handle_save_result(success, msg)
 
-        # [TAB 4] 카톡 브리핑 생성
+        # [TAB 4] 카톡 브리핑 생성 (자동 완성)
         with t4:
             st.markdown("##### 💬 카톡 브리핑 생성기")
             
@@ -207,9 +201,10 @@ def render_detail_view(item):
                 if item.get('권리금') and item.get('권리금') != '0': b_price += f" / 권 {item.get('권리금')}"
                 b_spec = f"실 {item.get('면적','-')}평"
             
-            b_feat = item.get('내용', '') or item.get('특이사항', '문의 요망')
+            # 특이사항(내부용) 제외하고 매물특징(브리핑용)만 사용
+            b_feat = item.get('매물특징', '') or "문의 요망"
             
-            briefing_text = f"""[매물 브리핑]
+            briefing_text = f"""[매물 브리핑] (네이버 지도 도보 기준)
 📍 위치: {b_loc}
 🏢 건물: {b_name}
 📐 스펙: {b_spec}
