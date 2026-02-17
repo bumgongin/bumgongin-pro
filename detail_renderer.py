@@ -1,6 +1,6 @@
 # detail_renderer.py
 # 범공인 Pro v24 Enterprise - Detail View Engine (v24.95 Final)
-# Feature: 4-Tab Detail, Lease/Sale Mode, Contact Actions, Smart Action Bar
+# Feature: Precision Form Fields, Commercial Analysis, Smart Action Bar, Zoom Control
 
 import streamlit as st
 import pandas as pd
@@ -24,48 +24,83 @@ def render_detail_view(item):
     current_sheet = st.session_state.current_sheet
     is_sale_mode = "매매" in current_sheet
 
-    # [B] 인프라 분석 (지하철 정보 호출)
+    # [B] 인프라 분석 및 지도 준비
     addr_full = f"{item.get('지역_구', '')} {item.get('지역_동', '')} {item.get('번지', '')}".strip()
     lat, lng = map_api.get_naver_geocode(addr_full)
     
-    subway_info = "" # 브리핑용 지하철 정보
-    if lat and lng:
-        # 캐싱된 인프라 분석 호출 (속도 최적화)
-        # 실제 앱에서는 @st.cache_data가 적용된 함수를 호출해야 함 (여기서는 직접 호출 가정)
-        try:
-            infra_data = infra_engine.get_commercial_analysis(lat, lng)
-            sub = infra_data.get('subway', {})
-            if sub.get('station') and sub['station'] != "정보 없음":
-                 w_min = int(round(sub.get('walk', 0)))
-                 if w_min == 0: w_min = 1
-                 subway_info = f" ({sub['station']} 도보 {w_min}분)"
-        except:
-            pass
+    # 줌 레벨 초기화
+    if 'map_zoom' not in st.session_state:
+        st.session_state.map_zoom = 14
 
     st.subheader(f"🏠 {item.get('건물명', '매물 상세 정보')}")
 
     # [C] 2단 레이아웃 (지도 1.5 : 탭 1)
     col_left, col_right = st.columns([1.5, 1])
 
-    # --- LEFT COLUMN: MAP & INFRA ---
+    # --- LEFT COLUMN: MAP & INFRA CONTROL ---
     with col_left:
         st.info(f"📍 {addr_full}")
+        
         if lat and lng:
-            # PC 최적화 높이 (800px)
-            map_img = map_api.fetch_map_image(lat, lng, height=800)
+            # 줌 컨트롤러
+            z1, z2, z_info = st.columns([1, 1, 4])
+            if z1.button("➕ 확대"):
+                st.session_state.map_zoom = min(st.session_state.map_zoom + 1, 20)
+                st.rerun()
+            if z2.button("➖ 축소"):
+                st.session_state.map_zoom = max(st.session_state.map_zoom - 1, 10)
+                st.rerun()
+            z_info.caption(f"현재 줌 레벨: {st.session_state.map_zoom}")
+
+            # 지도 이미지 출력 (높이 800px)
+            map_img = map_api.fetch_map_image(lat, lng, height=800, zoom_level=st.session_state.map_zoom)
             if map_img:
                 st.image(map_img, use_container_width=True)
             
             naver_url = f"https://map.naver.com/v5/search/{addr_full}?c={lng},{lat},17,0,0,0,dh"
             st.link_button("🗺️ 네이버 지도 앱에서 열기", naver_url, use_container_width=True)
-        else:
-            st.error("위치 정보를 찾을 수 없습니다.")
+            
+            # [상권 분석 섹션]
+            st.divider()
+            if st.button("📊 상권 요약 분석 보기 (300m 반경)", use_container_width=True):
+                with st.spinner("주변 시설 및 상권을 분석 중입니다..."):
+                    # 인프라 엔진 호출
+                    infra_data = infra_engine.get_commercial_analysis(lat, lng)
+                    if infra_data:
+                        # 1. 지하철 정보
+                        sub = infra_data.get('subway', {})
+                        if sub.get('station') and sub['station'] != "정보 없음":
+                             st.success(f"🚇 **{sub['station']}** ({sub.get('line','')}) : 도보 약 {int(sub.get('walk', 0))}분 ({int(sub.get('dist', 0))}m)")
+                        
+                        # 2. 분석 테이블 출력 (2열 배치)
+                        tab_fac, tab_anchor = st.tabs(["편의 시설", "앵커 브랜드"])
+                        
+                        with tab_fac:
+                            fac_df = infra_data.get('facilities')
+                            if fac_df is not None and not fac_df.empty:
+                                st.dataframe(fac_df, use_container_width=True, hide_index=True)
+                            else:
+                                st.info("주변 300m 이내 주요 시설 데이터가 없습니다.")
 
-    # --- RIGHT COLUMN: 4-TAB DETAIL ---
+                        with tab_anchor:
+                            anchor_df = infra_data.get('anchors')
+                            if anchor_df is not None and not anchor_df.empty:
+                                st.dataframe(anchor_df, use_container_width=True, hide_index=True)
+                            else:
+                                st.info("주변 1km 이내 주요 브랜드가 없습니다.")
+                        
+                        # 브리핑용 데이터 세션 저장
+                        st.session_state.last_subway_info = f" ({sub['station']} 도보 {int(sub.get('walk', 0))}분)" if sub.get('station') else ""
+                    else:
+                        st.error("분석 데이터를 가져오지 못했습니다.")
+        else:
+            st.error("위치 정보를 찾을 수 없습니다. (주소 확인 필요)")
+
+    # --- RIGHT COLUMN: 4-TAB DETAIL FORM ---
     with col_right:
         t1, t2, t3, t4 = st.tabs(["📝 기본/주소", "📑 시설/내용", "📁 기타 정보", "💬 브리핑"])
 
-        # [TAB 1] 기본 정보 (임대/매매 분기)
+        # [TAB 1] 기본 정보 (임대/매매 분기 - 폼 적용)
         with t1:
             with st.form("form_basic"):
                 updates_basic = {}
@@ -95,9 +130,9 @@ def render_detail_view(item):
                     if len(clean_num) >= 9:
                         bc1, bc2 = st.columns(2)
                         bc1.markdown(f'''<a href="tel:{clean_num}" target="_self" style="text-decoration:none;">
-                            <div style="text-align:center; background-color:#f0f2f6; padding:8px; border-radius:5px; border:1px solid #ccc;">📞 전화 걸기</div></a>''', unsafe_allow_html=True)
+                            <div style="text-align:center; background-color:#e8f0fe; padding:8px; border-radius:5px; border:1px solid #ccc; font-weight:bold;">📞 전화 걸기</div></a>''', unsafe_allow_html=True)
                         bc2.markdown(f'''<a href="sms:{clean_num}" target="_self" style="text-decoration:none;">
-                            <div style="text-align:center; background-color:#f0f2f6; padding:8px; border-radius:5px; border:1px solid #ccc;">💬 문자 보내기</div></a>''', unsafe_allow_html=True)
+                            <div style="text-align:center; background-color:#e8f0fe; padding:8px; border-radius:5px; border:1px solid #ccc; font-weight:bold;">💬 문자 보내기</div></a>''', unsafe_allow_html=True)
 
                 st.write("")
                 if st.form_submit_button("💾 기본정보 저장", use_container_width=True):
@@ -105,13 +140,13 @@ def render_detail_view(item):
                     success, msg = engine.update_single_row(item, current_sheet)
                     handle_save_result(success, msg)
 
-        # [TAB 2] 시설/내용 수정
+        # [TAB 2] 시설/내용 수정 (폼 적용)
         with t2:
             with st.form("form_facility"):
                 updates_fac = {}
                 
                 if is_sale_mode:
-                    # 매매 시설 필드
+                    # 매매 시설 필드 (8개)
                     fields_fac_sale = ['주용도', '기보증금', '기월세', '관리비', '주차', 'EV', '현업종']
                     c1, c2 = st.columns(2)
                     for i, col in enumerate(fields_fac_sale):
@@ -120,7 +155,7 @@ def render_detail_view(item):
                     
                     updates_fac['특이사항'] = st.text_area("특이사항", value=item.get('특이사항', ''), height=100)
                 else:
-                    # 임대 시설 필드
+                    # 임대 시설 필드 (7개)
                     fields_fac_rent = ['현업종', '주차', '화장실', 'E/V', '층고']
                     c1, c2 = st.columns(2)
                     for i, col in enumerate(fields_fac_rent):
@@ -156,22 +191,28 @@ def render_detail_view(item):
         with t4:
             st.markdown("##### 💬 카톡 브리핑 생성기")
             
-            # 브리핑 데이터 준비
-            b_loc = f"{item.get('지역_구','')} {item.get('지역_동','')}{subway_info}"
+            # 인프라 정보 가져오기 (세션에 저장된 값 활용)
+            sub_txt = st.session_state.get('last_subway_info', '')
+            
+            # 브리핑 데이터 조립
+            b_loc = f"{item.get('지역_구','')} {item.get('지역_동','')}{sub_txt}"
             b_name = f"{item.get('건물명','')} ({item.get('층','')}층)"
-            b_area = f"실 {item.get('면적','-')}평"
             
             if is_sale_mode:
                 b_price = f"매매 {item.get('매매가','-')}만"
+                if item.get('수익률'): b_price += f" (수익률 {item.get('수익률')}%)"
+                b_spec = f"대지 {item.get('대지면적','-')}평 / 연면 {item.get('연면적','-')}평"
             else:
                 b_price = f"보 {item.get('보증금','-')} / 월 {item.get('월차임','-')} / 관 {item.get('관리비','-')}"
+                if item.get('권리금') and item.get('권리금') != '0': b_price += f" / 권 {item.get('권리금')}"
+                b_spec = f"실 {item.get('면적','-')}평"
             
             b_feat = item.get('내용', '') or item.get('특이사항', '문의 요망')
             
             briefing_text = f"""[매물 브리핑]
 📍 위치: {b_loc}
 🏢 건물: {b_name}
-📐 면적: {b_area}
+📐 스펙: {b_spec}
 💰 금액: {b_price}
 📝 특징: {b_feat}
 
