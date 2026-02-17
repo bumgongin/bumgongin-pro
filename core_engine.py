@@ -259,71 +259,45 @@ def update_single_row(updated_row, sheet_name):
 
 def save_updates_to_sheet(edited_df, original_df, sheet_name):
     """
-    [Phase 1] 리스트/카드 뷰에서의 대량 수정 사항을 배치 저장합니다.
+    [Phase 1] IronID를 기준으로 리스트 뷰의 대량 수정 사항을 안전하게 저장합니다.
     """
     conn = st.connection("gsheets", type=GSheetsConnection)
     try:
-        # 1. 변경된 행 감지
+        # 1. 변경된 행만 추출 (IronID 기준 대조)
         df_org = original_df.set_index('IronID')
         df_new = edited_df.set_index('IronID')
-        
         changed_ids = []
         for iid in df_org.index.intersection(df_new.index):
-            row_org = df_org.loc[iid].drop(['선택'], errors='ignore').astype(str)
-            row_new = df_new.loc[iid].drop(['선택'], errors='ignore').astype(str)
-            if not row_org.equals(row_new):
+            # 선택 체크박스를 제외한 나머지 데이터가 변했는지 확인
+            if not df_org.loc[iid].drop(['선택'], errors='ignore').astype(str).equals(
+                   df_new.loc[iid].drop(['선택'], errors='ignore').astype(str)):
                 changed_ids.append(iid)
         
-        if not changed_ids: return True, "변경 사항이 없습니다.", None
+        if not changed_ids: return True, "변경 사항 없음", None
 
-        # 2. 재시도 로직
-        for attempt in range(3):
-            try:
-                sheet_data = normalize_headers(conn.read(spreadsheet=SHEET_URL, worksheet=sheet_name, ttl=0))
-                valid_keys = [k for k in ['번지', '층', '면적', '매매가', '보증금'] if k in sheet_data.columns and k in df_org.columns]
-                if len(valid_keys) < 2: return False, "식별 키 부족", None
+        # 2. 서버 데이터 로드 (실시간 반영을 위해 ttl=0)
+        sheet_data = normalize_headers(conn.read(spreadsheet=SHEET_URL, worksheet=sheet_name, ttl=0))
+        
+        if 'IronID' not in sheet_data.columns:
+            return False, "❌ 시트에 IronID 열이 없습니다. 먼저 상세페이지에서 저장을 한 번 수행하세요.", None
 
-                target_sigs = create_match_signature(df_org.loc[changed_ids].reset_index(), valid_keys)['_match_sig'].tolist()
-                server_sigs = create_match_signature(sheet_data, valid_keys)
-                
-                update_count = 0
-                for idx, sig in zip(target_sigs, changed_ids):
-                    match_indices = server_sigs.index[server_sigs['_match_sig'] == idx].tolist()
-                    if match_indices:
-                        match_idx = match_indices[0]
-                        for col in sheet_data.columns:
-                            if col in df_new.columns: 
-                                val = df_new.loc[sig, col]
-                                if col in NUMERIC_COLS:
-                                    try: 
-                                        val_str = str(val)
-                                        if col == '층':
-                                            match = re.search(r'(-?[\d.]+)', val_str)
-                                            val_clean = match.group(1) if match else "0"
-                                        else:
-                                            val_clean = re.sub(r'[^0-9.]', '', val_str)
-                                        val = float(val_clean) if val_clean else 0.0
-                                    except: val = 0.0
-                                sheet_data.at[match_idx, col] = val
-                        update_count += 1
-                
-                if update_count == 0: return False, "원본 데이터 매칭 실패", None
-                
-                is_valid, msg = validate_data_integrity(sheet_data)
-                if not is_valid: return False, f"무결성 오류: {msg}", None
-                
-                conn.update(spreadsheet=SHEET_URL, worksheet=sheet_name, data=sheet_data)
-                return True, f"✅ {update_count}건 저장 완료!", None
-                
-            except Exception as e:
-                time.sleep(attempt + 1)
-                last_err = e
-                continue
-                
-        return False, f"🚨 재시도 실패: {last_err}", None
+        # 3. ID 매칭 및 값 덮어쓰기
+        for sig in changed_ids:
+            # 서버 시트에서 해당 IronID가 몇 번째 줄인지 찾기
+            match_list = sheet_data.index[sheet_data['IronID'].astype(str) == str(sig)].tolist()
+            if match_list:
+                target_idx = match_list[0]
+                for col in sheet_data.columns:
+                    # '선택'이나 'IronID'는 시트 값을 건드리지 않고 나머지 정보만 업데이트
+                    if col in df_new.columns and col not in ['선택', 'IronID']:
+                        sheet_data.at[target_idx, col] = df_new.loc[sig, col]
+
+        # 4. 최종 저장
+        conn.update(spreadsheet=SHEET_URL, worksheet=sheet_name, data=sheet_data)
+        return True, f"✅ {len(changed_ids)}건 저장 완료", None
         
     except Exception as e: 
-        return False, f"🚨 치명적 오류: {e}", traceback.format_exc()
+        return False, f"저장 실패: {str(e)}", None
 
 def execute_transaction(action_type, target_rows, source_sheet, target_sheet=None):
     """
@@ -378,6 +352,7 @@ def execute_transaction(action_type, target_rows, source_sheet, target_sheet=Non
             
     except Exception as e: 
         return False, str(e), traceback.format_exc()
+
 
 
 
