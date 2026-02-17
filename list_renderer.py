@@ -1,6 +1,6 @@
 # list_renderer.py
-# 범공인 Pro v24 Enterprise - List Renderer Module (v24.96 Precision Fix)
-# Feature: Page-only Selection, Smart Editor, Batch Actions, External Detail View
+# 범공인 Pro v24 Enterprise - List Renderer Module (v24.96 Precision Refined)
+# Feature: Page-only Selection, No Building Name, Yield Display, View Mode Preservation
 
 import streamlit as st
 import pandas as pd
@@ -8,7 +8,7 @@ import math
 import time
 import core_engine as engine
 import map_service as map_api
-import detail_renderer # 상세 보기 전담 모듈 (분리 완료)
+import detail_renderer # 상세 보기 전담 모듈
 
 # 한 페이지에 표시할 매물 수
 ITEMS_PER_PAGE = 30
@@ -19,7 +19,6 @@ def show_main_list():
     """
     # [A] 상세 보기 모드 진입 확인 (최우선 처리)
     if st.session_state.selected_item is not None:
-        # 이 파일에는 렌더링 함수가 없으므로 외부 모듈 호출
         detail_renderer.render_detail_view(st.session_state.selected_item)
         return
 
@@ -141,7 +140,7 @@ def show_main_list():
 
 def render_card_view(df_page, is_sale):
     """
-    카드 형태의 리스트 출력 (이름없음 방지 및 체크박스 동기화)
+    카드 형태의 리스트 출력 (건물명 제거, 수익률 표시, 체크박스 동기화)
     """
     version = st.session_state.editor_key_version
     
@@ -160,16 +159,19 @@ def render_card_view(df_page, is_sale):
                 st.session_state.df_main.loc[st.session_state.df_main['IronID'] == iid, '선택'] = new_chk
                 st.rerun()
             
-            # 2. 내용 출력 (건물명 미입력 처리)
-            b_name = row.get('건물명')
-            if pd.isna(b_name) or str(b_name).strip() == "" or str(b_name) == "nan":
-                b_name = "건물명 미입력"
+            # 2. 내용 출력 (건물명 제거, 주소 중심 표시)
+            addr_info = f"**{row.get('지역_구')} {row.get('지역_동')} {row.get('번지')}**"
+            type_info = f"[{row.get('구분')}]"
             
-            info = f"**{b_name}** [{row.get('구분')}] | {row.get('지역_구')} {row.get('지역_동')} {row.get('번지')}\n"
+            info = f"{addr_info} {type_info}\n"
+            
             if is_sale:
-                info += f"💰 매매 {int(row.get('매매가',0)):,} / 대지 {row.get('대지면적')}평"
+                # 매매: 매매가 / 수익률 표시
+                info += f"💰 매매 {int(row.get('매매가',0)):,} / 수익률 {row.get('수익률', 0)}%"
             else:
+                # 임대: 보 / 월 / 권 유지
                 info += f"💰 보 {int(row.get('보증금',0)):,} / 월 {int(row.get('월차임',0)):,} / 권 {int(row.get('권리금',0)):,}"
+                
             info += f"\n📐 {row.get('층')}층 / {row.get('면적')}평"
             c2.markdown(info)
             
