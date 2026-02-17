@@ -1,17 +1,18 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Application Entry (v24.90 Restored)
-# Feature: Full Filter Logic, State Management, Smart Search
+# 범공인 Pro v24 Enterprise - Main Control Tower (v24.95 Final Assembly)
+# Feature: Smart Filters, Module Separation, State Management
 
 import streamlit as st
 import pandas as pd
-import core_engine as engine  # [Core Engine]
-import list_view              # [List View Module]
-import styles                 # [Style Module]
+import core_engine as engine
+import list_renderer     # 목록 렌더링 전담
+import detail_renderer   # 상세 보기 전담
+import styles            # 스타일 모듈
 
 # ==============================================================================
 # [INIT] 시스템 초기화 및 상태 관리
 # ==============================================================================
-st.set_page_config(page_title="범공인 Pro (v24.90)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="범공인 Pro (v24.95)", layout="wide", initial_sidebar_state="expanded")
 styles.apply_custom_css()
 
 # 1. 필수 상태 변수 초기화 (앱 구동 시 1회 실행)
@@ -118,7 +119,7 @@ with st.sidebar:
 
     st.write("")
     
-    # [D] 상세 금액/면적 필터
+    # [D] 상세 금액/면적 필터 (임대/매매 분기)
     is_sale_mode = "매매" in st.session_state.current_sheet
     with st.expander("💰 상세 설정 (금액/면적)", expanded=False):
         MAX_P = 10000000.0 # 1000억
@@ -172,9 +173,15 @@ with st.sidebar:
         st.rerun()
 
 # ==============================================================================
-# [MAIN CONTENT]
+# [MAIN CONTENT] - 뇌 (Brain)
 # ==============================================================================
 st.title("🏙️ 범공인 매물장 (Pro)")
 
-# 리스트 출력 로직 위임 (필터링된 상태는 session_state를 통해 공유됨)
-list_view.show_main_list()
+# [E] 화면 분기 로직 (이중 레이어)
+if st.session_state.selected_item is not None:
+    # 상세 페이지 (Detail Renderer에 위임)
+    detail_renderer.render_detail_view(st.session_state.selected_item)
+else:
+    # 목록 페이지 (List Renderer에 위임)
+    # 필터링 상태는 session_state를 통해 공유됨
+    list_renderer.show_main_list()
