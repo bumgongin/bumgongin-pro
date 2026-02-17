@@ -1,6 +1,6 @@
 # core_engine.py
-# 범공인 Pro v24 Enterprise - Core Data Engine Module (v24.97 Cache Purge)
-# Feature: Cache Purge, Unified Terminology, Precision Matching
+# 범공인 Pro v24 Enterprise - Core Data Engine Module (v24.97 New Entry)
+# Feature: Cache Purge, Unified Terminology, Precision Matching, Append New Row
 
 import streamlit as st
 import pandas as pd
@@ -231,8 +231,54 @@ def create_match_signature(df, keys):
     return temp_df
 
 # ==============================================================================
-# [SECTION 5: UPDATE ENGINE (FULL LOGIC)]
+# [SECTION 5: UPDATE ENGINE (FULL LOGIC + APPEND)]
 # ==============================================================================
+
+def add_new_row(new_data, sheet_name):
+    """
+    [Phase 5] 신규 매물을 시트 맨 마지막에 추가(Append)합니다. (IronID 자동 생성)
+    """
+    conn = st.connection("gsheets", type=GSheetsConnection)
+    try:
+        # 1. 딕셔너리를 데이터프레임으로 변환
+        df_new = pd.DataFrame([new_data])
+        
+        # 2. 필수 ID 생성
+        df_new['IronID'] = str(uuid.uuid4())
+        
+        # 3. 데이터 정제 (숫자, 문자 타입 맞춤)
+        # 중요: sanitize_dataframe은 전체 컬럼을 검사하므로 누락된 컬럼은 빈 값으로 처리됨
+        df_new = normalize_headers(df_new)
+        df_new = sanitize_dataframe(df_new)
+        
+        # 4. 서버 데이터 로드 (컬럼 구조 맞추기 위해)
+        # ttl=0으로 최신 상태 가져옴
+        df_server = normalize_headers(conn.read(spreadsheet=SHEET_URL, worksheet=sheet_name, ttl=0))
+        
+        # 5. 컬럼 매핑 (서버에 있는 컬럼만 남기고 순서 맞춤)
+        # 서버에 없는 컬럼은 버리고, 서버에 있는데 새 데이터에 없는건 빈 값으로
+        common_cols = [c for c in df_server.columns if c in df_new.columns or c not in df_new.columns]
+        
+        # 새 데이터프레임을 서버 구조에 맞게 재편성
+        df_final_new = pd.DataFrame(columns=df_server.columns)
+        for col in df_server.columns:
+            if col in df_new.columns:
+                df_final_new[col] = df_new[col]
+            else:
+                df_final_new[col] = "" # 없는 컬럼은 빈 값
+        
+        # 6. 데이터 병합 (Append)
+        # ignore_index=True로 인덱스 재설정
+        df_updated = pd.concat([df_server, df_final_new], ignore_index=True)
+        
+        # 7. 저장 및 캐시 파괴
+        conn.update(spreadsheet=SHEET_URL, worksheet=sheet_name, data=df_updated)
+        st.cache_data.clear() # [핵심] 목록 즉시 갱신
+        
+        return True, "✅ 신규 매물이 성공적으로 등록되었습니다."
+        
+    except Exception as e:
+        return False, f"신규 등록 실패: {str(e)}"
 
 def update_single_row(updated_row, sheet_name):
     """
@@ -260,28 +306,23 @@ def update_single_row(updated_row, sheet_name):
         
         # 3-B. [2차 시도] 세컨드 매칭 (번지 + 층 + 면적 + 호실) - 소수점 보정 포함
         if row_idx is None:
-            # 문자열 비교를 위해 데이터 타입 통일
             u_addr = str(updated_row.get('번지', '')).strip()
             u_floor = str(updated_row.get('층', '')).strip()
             u_ho = str(updated_row.get('호실', '')).strip()
             
-            # 면적은 소수점 1자리로 반올림하여 비교
             try:
                 u_area = round(float(updated_row.get('면적', 0)), 1)
             except: u_area = 0.0
 
-            # 시트 데이터도 동일하게 가공
             s_addr = sheet_data['번지'].astype(str).str.strip()
             s_floor = sheet_data['층'].astype(str).str.strip()
             s_ho = sheet_data['호실'].astype(str).str.strip() if '호실' in sheet_data.columns else ""
             
             try:
-                # 면적 숫자 변환 및 반올림
                 s_area = pd.to_numeric(sheet_data['면적'], errors='coerce').fillna(0.0).round(1)
             except:
                 s_area = 0.0
 
-            # 조건 결합
             cond = (s_addr == u_addr) & (s_floor == u_floor) & (s_area == u_area)
             if u_ho: cond = cond & (s_ho == u_ho)
             
