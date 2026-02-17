@@ -252,24 +252,24 @@ def main_list_view():
             st.write("")
             tab1, tab2, tab3, tab4 = st.tabs(["📝 기본 수정", "📑 상세(1)", "📁 상세(2)", "💬 카톡 문구"])
             
-# TAB 1: 기본 수정 (구/동/번지 수정 가능 버전)
+# TAB 1: 기본 수정 (구/동/번지 수정 가능 최종판)
             with tab1:
                 with st.form("edit_form_basic"):
-                    # 1단: 매물 기본 분류
+                    # 1단: 매물 분류 및 이름
                     c1, c2 = st.columns(2)
                     new_cat = c1.text_input("**구분**", value=item.get('구분', ''))
                     new_name = c2.text_input("**건물명**", value=item.get('건물명', ''))
                     
-                    # 2단: 상세 주소 수정 (사장님이 요청하신 핵심 기능)
-                    st.markdown("---")
+                    # 2단: 주소 수정 (이 부분이 새로 추가되었습니다)
+                    st.divider()
                     st.caption("📍 위치 정보 수정 (구/동/번지를 정확히 입력하세요)")
                     a1, a2, a3 = st.columns(3)
                     new_gu = a1.text_input("**지역(구)**", value=item.get('지역_구', ''))
                     new_dong = a2.text_input("**지역(동)**", value=item.get('지역_동', ''))
                     new_bunji = a3.text_input("**번지**", value=item.get('번지', ''))
-                    st.markdown("---")
+                    st.divider()
                     
-                    # 3단: 금액 및 면적 정보
+                    # 3단: 금액 및 면적 (기존 로직 유지)
                     c3, c4 = st.columns(2)
                     if is_sale_mode:
                         new_price = c3.text_input("**매매가**", value=str(item.get('매매가', 0)).replace(',',''))
@@ -294,23 +294,16 @@ def main_list_view():
                     new_memo = st.text_area("**비고**", value=item.get('비고', ''), height=80)
                     
                     if st.form_submit_button("💾 기본 정보 저장", type="primary", use_container_width=True):
-                        # 수정한 값들을 딕셔너리에 담습니다.
                         updated_data = item.copy()
+                        # 수정된 주소 값들을 데이터에 반영합니다.
                         updated_data.update({
-                            '구분': new_cat, 
-                            '건물명': new_name, 
-                            '지역_구': new_gu, 
-                            '지역_동': new_dong, 
-                            '번지': new_bunji,
-                            '면적': new_area, 
-                            '층': new_floor, 
-                            '내용': new_desc, 
-                            '비고': new_memo
+                            '구분': new_cat, '건물명': new_name, 
+                            '지역_구': new_gu, '지역_동': new_dong, '번지': new_bunji,
+                            '면적': new_area, '층': new_floor, '내용': new_desc, '비고': new_memo
                         })
                         if is_sale_mode: updated_data.update({'매매가': new_price, '수익률': new_yield, '대지면적': new_land, '연면적': new_total})
                         else: updated_data.update({'보증금': new_dep, '월차임': new_rent, '권리금': new_kwon, '관리비': new_man})
                         
-                        # 수술 1에서 만든 무적 엔진으로 전송!
                         success, msg = engine.update_single_row(updated_data, st.session_state.current_sheet)
                         if success:
                             st.success(msg); time.sleep(1.0); del st.session_state.df_main
