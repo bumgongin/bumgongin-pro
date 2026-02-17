@@ -1,40 +1,52 @@
-# app.py - 범공인 Pro 메인 관리 타워
+# app.py
 import streamlit as st
 import core_engine as engine
 import list_view
 import styles
 
-# [1] 시스템 초기화
-st.set_page_config(page_title="범공인 Pro (v24.70)", layout="wide", initial_sidebar_state="expanded")
+# [1] 시스템 초기화 및 모든 상태 변수 준비 (에러 방지)
+st.set_page_config(page_title="범공인 Pro (v24.75)", layout="wide", initial_sidebar_state="expanded")
 styles.apply_custom_css()
+
+# 중요: 사라졌던 상태 변수들을 여기서 모두 초기화합니다.
+if 'current_sheet' not in st.session_state: st.session_state.current_sheet = engine.SHEET_NAMES[0]
+if 'selected_item' not in st.session_state: st.session_state.selected_item = None
+if 'view_mode' not in st.session_state: st.session_state.view_mode = '🗂️ 카드 모드'
+if 'page_num' not in st.session_state: st.session_state.page_num = 1
+if 'editor_key_version' not in st.session_state: st.session_state.editor_key_version = 0
+if 'action_status' not in st.session_state: st.session_state.action_status = None
+if 'zoom_level' not in st.session_state: st.session_state.zoom_level = 16
+if 'infra_res_c' not in st.session_state: st.session_state.infra_res_c = None
+if 'last_analyzed_id' not in st.session_state: st.session_state.last_analyzed_id = None
+
+# 필터용 초기값 설정
 engine.initialize_search_state()
 
-# [2] 사이드바: 필터 컨트롤 타워
+# [2] 사이드바: 강력한 필터 컨트롤 타워 복구
 with st.sidebar:
     st.header("📂 관리 도구")
     
-    # 시트 선택 로직
-    if 'current_sheet' not in st.session_state: st.session_state.current_sheet = engine.SHEET_NAMES[0]
+    # 시트 선택
     curr_idx = engine.SHEET_NAMES.index(st.session_state.current_sheet)
     selected_sheet = st.selectbox("작업 시트 선택", engine.SHEET_NAMES, index=curr_idx)
-    
     if selected_sheet != st.session_state.current_sheet:
         st.session_state.current_sheet = selected_sheet
         if 'df_main' in st.session_state: del st.session_state.df_main
+        st.session_state.selected_item = None
         st.rerun()
 
     # 데이터 로드
     if 'df_main' not in st.session_state:
-        with st.spinner("데이터 로딩 중..."):
-            st.session_state.df_main = engine.load_sheet_data(st.session_state.current_sheet)
+        st.session_state.df_main = engine.load_sheet_data(st.session_state.current_sheet)
     
     df = st.session_state.df_main
 
-    # 상세 검색 필터
+    # 통합 및 번지 검색
     st.divider()
-    st.text_input("🔍 통합 검색", key='search_keyword', placeholder="건물명, 특징 등")
-    st.text_input("📍 번지 검색", key='exact_bunji', placeholder="예: 123-1")
+    st.text_input("🔍 통합 키워드 검색", key='search_keyword')
+    st.text_input("📍 번지 검색", key='exact_bunji')
     
+    # 사라졌던 상세 필터들 100% 복구
     with st.expander("🏷️ 항목/지역 필터", expanded=True):
         st.multiselect("구분", sorted(df['구분'].unique()), key='selected_cat')
         st.multiselect("지역 (구)", sorted(df['지역_구'].unique()), key='selected_gu')
@@ -55,8 +67,12 @@ with st.sidebar:
 
     if st.button("🔄 필터 초기화", use_container_width=True): engine.safe_reset()
     st.divider()
-    st.radio("보기 모드", ['🗂️ 카드 모드', '📋 리스트 모드'], key='view_mode')
+    st.radio("보기 모드", ['🗂️ 카드 모드', '📋 리스트 모드'], key='view_mode_radio')
+    # 라디오 버튼 값을 세션 상태와 동기화
+    if st.session_state.view_mode_radio != st.session_state.view_mode:
+        st.session_state.view_mode = st.session_state.view_mode_radio
+        st.rerun()
 
-# [3] 메인 화면 실행 (list_view 모듈에 위임)
+# [3] 메인 본체 실행
 st.title("🏙️ 범공인 매물장 (Pro)")
 list_view.show_main_list()
