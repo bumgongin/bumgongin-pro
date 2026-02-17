@@ -1,4 +1,4 @@
-# list_view.py - 매물 목록 및 상세 보기 전용 모듈
+# list_view.py
 import streamlit as st
 import pandas as pd
 import time
@@ -8,90 +8,75 @@ import core_engine as engine
 import map_service as map_api
 
 def show_main_list():
+    if 'df_main' not in st.session_state or st.session_state.df_main is None:
+        st.warning("데이터가 로드되지 않았습니다. 시트를 선택해 주세요.")
+        return
+
     df_main = st.session_state.df_main
     is_sale_mode = "매매" in st.session_state.current_sheet
 
     # ==========================================
-    # [1] 상세 보기 화면 (Detail View)
+    # [A] 상세 보기 모드 (Detail View)
     # ==========================================
     if st.session_state.selected_item is not None:
         item = st.session_state.selected_item
         current_id = item.get('IronID')
         
-        # 분석 결과 초기화 로직
-        if st.session_state.last_analyzed_id != current_id:
-            st.session_state.infra_res_c = None
-            st.session_state.last_analyzed_id = current_id
-
         c_back, c_title = st.columns([1, 5])
-        if c_back.button("◀ 목록으로 돌아가기"):
+        if c_back.button("◀ 목록으로"):
             st.session_state.selected_item = None
             st.rerun()
         
         c_title.markdown(f"### {item.get('건물명', '매물 상세')}")
 
-        # 레이아웃 구성
         addr_full = f"{item.get('지역_구', '')} {item.get('지역_동', '')} {item.get('번지', '')}"
         col_left, col_right = st.columns([1.5, 1])
 
-        # 좌측: 지도 섹션
         with col_left:
-            st.caption(f"📍 {addr_full}")
             lat, lng = map_api.get_naver_geocode(addr_full)
             if lat and lng:
                 is_pc = st.session_state.get('view_mode') == '🗂️ 카드 모드'
-                map_h = 1024 if is_pc else 700 
-                map_img = map_api.fetch_map_image(lat, lng, zoom_level=st.session_state.zoom_level, height=map_h)
+                map_img = map_api.fetch_map_image(lat, lng, height=1024 if is_pc else 700)
                 if map_img: st.image(map_img, use_container_width=True)
-                st.link_button("📍 네이버 지도(공식) 연결", f"https://map.naver.com/v5/search/{addr_full}", use_container_width=True)
+            st.info(f"📍 주소: {addr_full}")
 
-        # 우측: 수정 폼 섹션
         with col_right:
-            tab1, tab2, tab3, tab4 = st.tabs(["📝 기본 수정", "📑 상세(1)", "📁 상세(2)", "💬 카톡 문구"])
-            
-            with tab1: # 구/동/번지 통합 수정 폼
-                with st.form("edit_form_basic"):
-                    c1, c2 = st.columns(2)
-                    new_cat = c1.text_input("**구분**", value=item.get('구분', ''))
-                    new_name = c2.text_input("**건물명**", value=item.get('건물명', ''))
-                    
-                    st.divider()
-                    st.caption("📍 상세 주소 정보 (수정 가능)")
+            tab1, tab2 = st.tabs(["📝 정보 수정", "💬 브리핑 문구"])
+            with tab1:
+                with st.form("edit_form"):
+                    new_name = st.text_input("건물명", value=item.get('건물명', ''))
                     a1, a2, a3 = st.columns(3)
-                    new_gu = a1.text_input("**지역(구)**", value=item.get('지역_구', ''))
-                    new_dong = a2.text_input("**지역(동)**", value=item.get('지역_동', ''))
-                    new_bunji = a3.text_input("**번지**", value=item.get('번지', ''))
-                    st.divider()
+                    new_gu = a1.text_input("지역(구)", value=item.get('지역_구', ''))
+                    new_dong = a2.text_input("지역(동)", value=item.get('지역_동', ''))
+                    new_bunji = a3.text_input("번지", value=item.get('번지', ''))
                     
-                    c3, c4 = st.columns(2)
-                    if is_sale_mode:
-                        v1 = c3.text_input("**매매가**", value=str(item.get('매매가', 0)))
-                        v2 = c4.text_input("**수익률**", value=str(item.get('수익률', 0)))
-                    else:
-                        v1 = c3.text_input("**보증금**", value=str(item.get('보증금', 0)))
-                        v2 = c4.text_input("**월세**", value=str(item.get('월차임', 0)))
-
-                    new_area = st.text_input("**전용면적**", value=str(item.get('면적', 0)))
-                    new_floor = st.text_input("**층수**", value=str(item.get('층', '')))
-                    new_desc = st.text_area("**특징**", value=item.get('내용', ''), height=100)
+                    new_desc = st.text_area("특징/내용", value=item.get('내용', ''), height=150)
                     
-                    if st.form_submit_button("💾 정보 저장 (서버 반영)", type="primary", use_container_width=True):
+                    if st.form_submit_button("💾 시트에 즉시 저장", type="primary", use_container_width=True):
                         updated_data = item.copy()
-                        updated_data.update({
-                            '구분': new_cat, '건물명': new_name, '지역_구': new_gu, 
-                            '지역_동': new_dong, '번지': new_bunji, '면적': new_area, '층': new_floor, '내용': new_desc
-                        })
-                        if is_sale_mode: updated_data.update({'매매가': v1, '수익률': v2})
-                        else: updated_data.update({'보증금': v1, '월차임': v2})
-                        
+                        updated_data.update({'건물명': new_name, '지역_구': new_gu, '지역_동': new_dong, '번지': new_bunji, '내용': new_desc})
                         success, msg = engine.update_single_row(updated_data, st.session_state.current_sheet)
                         if success:
                             st.success(msg); time.sleep(1); del st.session_state.df_main; st.session_state.selected_item = None; st.rerun()
         return
 
     # ==========================================
-    # [2] 목록 보기 화면 (List View)
+    # [B] 목록 보기 모드 (List View)
     # ==========================================
-    # (사장님의 기존 리스트 필터링 및 출력 로직이 여기에 들어갑니다)
-    st.info(f"📋 '{st.session_state.current_sheet}' 시트에서 매물을 불러왔습니다.")
-    # ... 리스트 구현 코드는 공간상 핵심 구조만 보여드립니다.
+    # 검색 필터링 로직
+    df_filtered = df_main.copy()
+    if st.session_state.search_keyword:
+        mask = df_filtered.astype(str).apply(lambda x: x.str.contains(st.session_state.search_keyword, case=False)).any(axis=1)
+        df_filtered = df_filtered[mask]
+    
+    st.subheader(f"📋 매물 목록 ({len(df_filtered)}건)")
+    
+    # 카드 모드 출력
+    for idx, row in df_filtered.head(20).iterrows():
+        with st.container(border=True):
+            c1, c2 = st.columns([4, 1])
+            c1.markdown(f"**[{row.get('구분', '매물')}] {row.get('건물명', '이름없음')}**")
+            c1.caption(f"📍 {row.get('지역_구', '')} {row.get('지역_동', '')} {row.get('번지', '')}")
+            if c2.button("상세보기", key=f"btn_{row['IronID']}"):
+                st.session_state.selected_item = row
+                st.rerun()
