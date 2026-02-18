@@ -1,6 +1,6 @@
 # list_renderer.py
-# 범공인 Pro v24 Enterprise - List Renderer Module (v24.99 Null-Safe Patch)
-# Feature: Null-Safe Filtering, Active New Entry Button, Secure Logic
+# 범공인 Pro v24 Enterprise - List Renderer Module (v24.99 Final Fixed)
+# Feature: Fixed List Grid, Null-Safe Filtering, Active New Entry Button, Secure Logic
 
 import streamlit as st
 import pandas as pd
@@ -176,7 +176,7 @@ def show_main_list():
 
 def render_card_view(df_page, is_sale):
     """
-    카드 형태의 리스트 출력
+    카드 형태의 리스트 출력 (건물명 제거, 수익률 표시, 체크박스 동기화)
     """
     version = st.session_state.editor_key_version
     
@@ -212,36 +212,41 @@ def render_card_view(df_page, is_sale):
 
 def render_list_view_editor(df_page):
     """
-    리스트 모드 (st.data_editor 활용)
+    리스트 모드 (st.data_editor 활용 - 무적 설정 및 상세 이동)
     """
     df_editor = df_page.copy()
     df_editor.insert(0, "🔍", False)
     
+    # [수정됨] 너비 및 높이 고정 (화면 흔들림 방지)
     column_config = {
         "🔍": st.column_config.CheckboxColumn(width="small", label="상세보기"),
         "선택": st.column_config.CheckboxColumn(width="small"),
         "IronID": None
     }
 
+    # 모든 데이터 컬럼 비활성화 (정렬/이동 차단)
     disabled_cols = [col for col in df_editor.columns if col not in ['선택', '🔍']]
 
+    # [수정됨] 높이 고정 (height=600)
     edited_df = st.data_editor(
         df_editor,
         column_config=column_config,
         disabled=disabled_cols,
         hide_index=True,
         use_container_width=True,
-        num_rows="fixed",
-        height=600,
+        num_rows="fixed", # 행 추가/삭제 방지 (무적 설정)
+        height=600,       # 충분한 높이 확보 (헤더 고정)
         key=f"editor_main_{st.session_state.editor_key_version}"
     )
 
+    # 이벤트 처리 1: 상세 페이지 이동 (돋보기 체크 감지)
     if edited_df['🔍'].any():
         target_row = edited_df[edited_df['🔍'] == True].iloc[0]
         original_row = st.session_state.df_main[st.session_state.df_main['IronID'] == target_row['IronID']].iloc[0]
         st.session_state.selected_item = original_row
         st.rerun()
 
+    # 이벤트 처리 2: 선택 상태 동기화 (수동 저장 버튼)
     if st.button("💾 리스트 선택 상태 저장 (체크박스 반영)", use_container_width=True):
         for index, row in edited_df.iterrows():
             st.session_state.df_main.loc[st.session_state.df_main['IronID'] == row['IronID'], '선택'] = row['선택']
@@ -251,7 +256,7 @@ def render_list_view_editor(df_page):
 
 def render_action_bar():
     """
-    하단 일괄 작업 바
+    하단 일괄 작업 바 (트랜잭션 연결)
     """
     selected_rows = st.session_state.df_main[st.session_state.df_main['선택'] == True]
     if selected_rows.empty: return
@@ -265,6 +270,7 @@ def render_action_bar():
     base_name = cur_sheet.replace("(종료)", "").replace("브리핑", "").strip()
     base_label = "매매" if "매매" in cur_sheet else "임대"
     
+    # 1. 이동/복구
     if is_end_sheet:
         if c1.button(f"♻️ {base_label} 목록으로 복구", use_container_width=True):
             engine.execute_transaction("restore", selected_rows, cur_sheet, base_name)
@@ -276,12 +282,15 @@ def render_action_bar():
             del st.session_state.df_main
             st.rerun()
             
+    # 2. 브리핑 복사
     if "브리핑" not in cur_sheet:
         if c2.button(f"🚀 {base_label} 브리핑 시트로 복사", use_container_width=True):
             engine.execute_transaction("copy", selected_rows, cur_sheet, f"{base_name}브리핑")
             st.success("브리핑 시트로 복사가 완료되었습니다!")
             time.sleep(1)
+            # 복사는 리스트 갱신 불필요 (선택 상태 유지)
 
+    # 3. 영구 삭제
     if c3.button("🗑️ 선택 항목 영구 삭제", type="primary", use_container_width=True):
         engine.execute_transaction("delete", selected_rows, cur_sheet)
         del st.session_state.df_main
