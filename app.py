@@ -1,20 +1,56 @@
 # app.py
-# 범공인 Pro v24 Enterprise - Main Control Tower (v24.98 Final Integrated)
-# Feature: 3-Way Branching (List/Detail/New), Smart Sidebar, Strong Sync
+# 범공인 Pro v24 Enterprise - Main Control Tower (v24.99 Final Secure)
+# Feature: Master Login, 3-Way Branching, Infinite Filter, Strong Sync
 
 import streamlit as st
 import pandas as pd
 import core_engine as engine
 import list_renderer     # 목록 렌더링 전담
 import detail_renderer   # 상세 보기 전담
-import new_item_renderer # 신규 등록 전담 (New)
+import new_item_renderer # 신규 등록 전담
 import styles            # 스타일 모듈
 
 # ==============================================================================
-# [INIT] 시스템 초기화 및 상태 관리
+# [INIT] 시스템 초기화 및 보안 설정
 # ==============================================================================
-st.set_page_config(page_title="범공인 Pro (v24.98)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="범공인 Pro (v24.99)", layout="wide", initial_sidebar_state="expanded")
 styles.apply_custom_css()
+
+# 1. 로그인 상태 관리 초기화
+if 'auth_status' not in st.session_state: 
+    st.session_state.auth_status = False
+
+def check_password():
+    """마스터 비밀번호 검증 함수"""
+    if st.session_state.password_input == "bum24!":
+        st.session_state.auth_status = True
+    else:
+        st.error("🔒 비밀번호가 올바르지 않습니다.")
+
+# ==============================================================================
+# [SECURITY GATE] 로그인 화면
+# ==============================================================================
+if not st.session_state.auth_status:
+    # 로그인 전에는 사이드바와 메인 컨텐츠를 숨김
+    st.markdown("<br><br><br>", unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        with st.container(border=True):
+            st.markdown("<h2 style='text-align: center;'>🔐 범공인 Pro - 보안 접속</h2>", unsafe_allow_html=True)
+            st.text_input("마스터 비밀번호를 입력하세요", type="password", key="password_input", on_change=check_password)
+            
+            if st.button("접속하기", use_container_width=True, type="primary"):
+                check_password()
+                if st.session_state.auth_status:
+                    st.rerun()
+    
+    # 로그인 되지 않았으면 여기서 코드 중단
+    st.stop()
+
+# ==============================================================================
+# [SYSTEM START] 로그인 성공 후 로직 진입
+# ==============================================================================
 
 # 1. 필수 상태 변수 초기화
 if 'current_sheet' not in st.session_state: st.session_state.current_sheet = engine.SHEET_NAMES[0]
@@ -23,7 +59,7 @@ if 'view_mode' not in st.session_state: st.session_state.view_mode = '🗂️ �
 if 'page_num' not in st.session_state: st.session_state.page_num = 1
 if 'editor_key_version' not in st.session_state: st.session_state.editor_key_version = 0
 
-# [New] 신규 등록 모드 상태 변수
+# 신규 등록 모드 상태 변수
 if 'is_adding_new' not in st.session_state: st.session_state.is_adding_new = False
 
 # 2. 스마트 필터 UI 토글 상태 초기화
@@ -31,7 +67,11 @@ if 'show_cat_search' not in st.session_state: st.session_state.show_cat_search =
 if 'show_gu_search' not in st.session_state: st.session_state.show_gu_search = False
 if 'show_dong_search' not in st.session_state: st.session_state.show_dong_search = False
 
-# 3. 검색 엔진 상태 초기화
+# 3. 수익률 필터 전용 키 초기화 (매매 모드용)
+if 'min_yield' not in st.session_state: st.session_state.min_yield = 0.0
+if 'max_yield' not in st.session_state: st.session_state.max_yield = 100.0
+
+# 4. 검색 엔진 상태 초기화
 engine.initialize_search_state()
 
 # 세션 값 단축 접근 함수
@@ -49,7 +89,7 @@ with st.sidebar:
     
     # [A] 작업 시트 및 등록 버튼
     with st.container(border=True):
-        # [신규 등록 버튼] - 최상단 배치
+        # [신규 등록 버튼]
         if st.button("➕ 신규 매물 등록", use_container_width=True, type="primary"):
             st.session_state.selected_item = None
             st.session_state.is_adding_new = True
@@ -68,7 +108,7 @@ with st.sidebar:
             label_visibility="collapsed"
         )
         
-        # 시트 변경 감지 및 강제 리셋
+        # 시트 변경 감지 및 강제 리셋 (데이터 강제 동기화)
         if selected_sheet != st.session_state.current_sheet:
             st.session_state.current_sheet = selected_sheet
             st.session_state.page_num = 1
@@ -145,6 +185,7 @@ with st.sidebar:
     st.write("")
     
     # [D] 상세 금액/면적 필터 (임대/매매 분기)
+    # value=None으로 설정하여 공란(Clean UI) 구현, max_value는 조 단위 설정
     MAX_VAL = 999999999999.0 
     
     is_sale_mode = "매매" in st.session_state.current_sheet
@@ -194,8 +235,11 @@ with st.sidebar:
     st.divider()
     # [보기 모드 보존 로직]
     if st.button("🔄 필터 초기화", use_container_width=True): 
+        # 1. 보기 모드 백업
         backup_view = st.session_state.view_mode
+        # 2. 엔진 리셋 (필터값 초기화)
         engine.safe_reset()
+        # 3. 보기 모드 복원 및 페이지 초기화
         st.session_state.view_mode = backup_view
         st.session_state.page_num = 1
         st.rerun()
@@ -213,11 +257,12 @@ with st.sidebar:
 st.title("🏙️ 범공인 매물장 (Pro)")
 
 if st.session_state.selected_item is not None:
-    # 1. 상세 보기 모드
+    # 1. 상세 보기 모드 (Detail Renderer에 위임)
     detail_renderer.render_detail_view(st.session_state.selected_item)
 elif st.session_state.is_adding_new:
-    # 2. 신규 등록 모드
+    # 2. 신규 등록 모드 (New Item Renderer에 위임)
     new_item_renderer.render_new_item_form()
 else:
-    # 3. 목록 보기 모드 (기본)
+    # 3. 목록 보기 모드 (List Renderer에 위임)
+    # 필터링 상태는 session_state를 통해 공유됨
     list_renderer.show_main_list()
