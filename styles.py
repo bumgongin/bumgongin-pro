@@ -1,6 +1,6 @@
 # styles.py
-# 범공인 Pro v24 Enterprise - Style Definition Module (v24.99 Super Glue)
-# Feature: Static Data Grid, Viewport Locking, Header Lockdown, Anti-Wobble
+# 범공인 Pro v24 Enterprise - Style Definition Module (v24.99 Scroll Clean)
+# Feature: Single Scrollbar, Static Grid, Viewport Locking
 
 import streamlit as st
 
@@ -73,25 +73,24 @@ def apply_custom_css():
         .listing-card {
             background-color: #ffffff;
             border-bottom: 1px solid #f0f0f0;
-            /* 모바일 패딩 확장 (여백의 미) */
             padding: 15px 12px; 
             margin-bottom: 0px;
             transition: background-color 0.1s;
             pointer-events: auto !important;
             display: flex; 
             flex-direction: column; 
-            gap: 6px; /* 내부 요소 간격 조정 */
+            gap: 6px; 
         }
         
         .listing-card:active { background-color: #f5f5f5; }
         
-        /* 1단: 가격 및 태그 (칼각 정렬) */
+        /* 1단: 가격 및 태그 */
         .card-row-1 { 
             display: flex; 
             align-items: center; 
             gap: 8px; 
             margin-bottom: 2px;
-            padding-left: 2px; /* 미세 좌측 여백 */
+            padding-left: 2px;
         }
         .card-tag {
             font-size: 0.75rem; font-weight: 700; color: #1565c0;
@@ -105,7 +104,7 @@ def apply_custom_css():
             letter-spacing: -0.5px;
         }
         
-        /* 2단: 주소 및 층수 (가독성 확보) */
+        /* 2단: 주소 */
         .card-row-2 { 
             font-size: 0.9rem; 
             color: #212121; 
@@ -117,7 +116,7 @@ def apply_custom_css():
             margin-bottom: 2px;
         }
         
-        /* 3단: 상세 스펙 (정보 전달력) */
+        /* 3단: 상세 스펙 */
         .card-row-3 { 
             font-size: 0.85rem; 
             color: #666; 
@@ -128,20 +127,18 @@ def apply_custom_css():
             padding-left: 2px;
         }
 
-        /* PC Responsive (가로 배치) */
+        /* PC Responsive */
         @media (min-width: 1024px) {
             .listing-card { flex-direction: row; padding: 12px 20px; justify-content: space-between; align-items: center; }
             .card-row-1, .card-row-2, .card-row-3 { margin-bottom: 0; flex: 1; }
-            
-            /* PC에서는 상세 버튼을 우측에 작게 */
             .card-btn-container { width: auto !important; margin-top: 0 !important; }
             .stButton.card-detail-btn button { width: auto !important; }
         }
 
         /* --------------------------------------------------------------------- */
-        /* [LIST MODE] Data Editor & DataFrame Grid Fix (Super Glue)             */
+        /* [LIST MODE] Data Editor & DataFrame Grid Fix (Single Scrollbar)       */
         /* --------------------------------------------------------------------- */
-        /* 공통 컨테이너 스타일 강화 (유격 박멸) */
+        /* 1. 최상위 껍데기 컨테이너 스크롤 차단 */
         div[data-testid="stDataEditor"], div[data-testid="stDataFrame"] {
             border: 1px solid #e0e0e0; 
             border-radius: 8px; 
@@ -149,41 +146,41 @@ def apply_custom_css():
             touch-action: pan-y !important; 
             -webkit-user-drag: none !important; 
             pointer-events: auto !important;
-            width: 100% !important; /* 너비 강제 고정 */
+            width: 100% !important;
             max-width: 100% !important;
-            margin: 0 !important; /* 외부 여백 제거 */
-            padding: 0 !important; /* 내부 여백 제거 */
-            overflow-x: hidden; /* 가로 스크롤 억제 */
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: hidden !important; /* 바깥 스크롤바 박멸 */
         }
 
-        /* 내부 스크롤 영역 제어 */
+        /* 2. 중간 컨테이너 스크롤 차단 (여기가 핵심 범인) */
         div[data-testid="stDataEditor"] > div, div[data-testid="stDataFrame"] > div {
-            overflow-y: auto !important; 
-            overscroll-behavior: contain !important;
-            -webkit-overflow-scrolling: touch !important; 
-            scrollbar-width: thin;
-            width: 100% !important; /* 내부 너비도 꽉 차게 */
+            overflow: hidden !important; /* 중간 단계 스크롤바 박멸 */
+            width: 100% !important;
         }
 
-        /* 테이블 헤더 및 셀 텍스트 고정 (드래그 방지 및 커서 고정) */
+        /* 3. 테이블 엔진(Glide Grid) 내부 스크롤만 허용 */
+        /* 이 부분은 엔진이 알아서 생성하므로 건드리지 않거나 부드럽게 설정 */
+        
+        /* 테이블 헤더 및 셀 텍스트 고정 */
         div[data-testid="stDataEditor"] *, div[data-testid="stDataFrame"] * { 
             user-select: none !important; 
             -webkit-user-select: none !important;
             -webkit-user-drag: none !important; 
         }
 
-        /* 헤더 스타일 고정 (Header Lockdown - 열 이동 완전 차단) */
+        /* 헤더 스타일 고정 (Header Lockdown) */
         div[data-testid="stDataEditor"] thead th, div[data-testid="stDataFrame"] thead th {
-            z-index: 10 !important; /* 헤더 우선순위 확보 */
-            background-color: #f8f9fa !important; /* 헤더 배경색 고정 */
+            z-index: 10 !important;
+            background-color: #f8f9fa !important;
             border-bottom: 2px solid #e0e0e0 !important;
-            cursor: default !important; /* 손가락 모양 방지 */
-            pointer-events: none !important; /* 헤더 클릭/드래그 이벤트 무시 (핵심) */
-            position: sticky !important; /* 스티키 고정 강화 */
+            cursor: default !important;
+            pointer-events: none !important;
+            position: sticky !important;
             top: 0 !important;
         }
         
-        /* 테이블 내부 셀 정렬 및 여백 조정 */
+        /* 셀 정렬 */
         div[data-testid="stDataEditor"] td, div[data-testid="stDataFrame"] td {
             vertical-align: middle !important;
             padding: 8px 4px !important;
@@ -229,7 +226,6 @@ def apply_custom_css():
             div[data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; gap: 6px !important; }
             div[data-testid="column"] { min-width: 30% !important; flex: 1 !important; }
             
-            /* 모바일에서 카드 내 상세 버튼 꽉 차게 */
             .card-btn-container {
                 width: 100% !important;
                 margin-top: 8px !important;
