@@ -1,6 +1,6 @@
 # detail_renderer.py
-# 범공인 Pro v24 Enterprise - Detail View Engine (v24.97 Live Sync)
-# Feature: Real-time Memory Injection, Single Column Layout, Naver Map Base
+# 범공인 Pro v24 Enterprise - Detail View Engine (v24.99 Final Fixed)
+# Feature: Fixed Table Height, Real-time Memory Injection, Single Column Layout, Naver Map Base
 
 import streamlit as st
 import pandas as pd
@@ -87,14 +87,16 @@ def render_detail_view(item):
                         with tab_fac:
                             fac_df = infra_data.get('facilities')
                             if fac_df is not None and not fac_df.empty:
-                                st.dataframe(fac_df, use_container_width=True, hide_index=True)
+                                # [수정됨] 높이 고정 (height=300)
+                                st.dataframe(fac_df, use_container_width=True, hide_index=True, height=300)
                             else:
                                 st.info("주변 300m 이내 주요 시설 데이터가 없습니다.")
 
                         with tab_anchor:
                             anchor_df = infra_data.get('anchors')
                             if anchor_df is not None and not anchor_df.empty:
-                                st.dataframe(anchor_df, use_container_width=True, hide_index=True)
+                                # [수정됨] 높이 고정 (height=300)
+                                st.dataframe(anchor_df, use_container_width=True, hide_index=True, height=300)
                             else:
                                 st.info("주변 1km 이내 주요 브랜드가 없습니다.")
                     else:
