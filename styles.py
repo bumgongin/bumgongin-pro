@@ -1,6 +1,6 @@
 # styles.py
-# 범공인 Pro v24 Enterprise - Style Definition Module (v24.99 Final Static Grid)
-# Feature: Static Data Grid, Viewport Locking, Column Reorder Block
+# 범공인 Pro v24 Enterprise - Style Definition Module (v24.99 Super Glue)
+# Feature: Static Data Grid, Viewport Locking, Header Lockdown, Anti-Wobble
 
 import streamlit as st
 
@@ -139,9 +139,9 @@ def apply_custom_css():
         }
 
         /* --------------------------------------------------------------------- */
-        /* [LIST MODE] Data Editor & DataFrame Grid Fix (Reorder Block)          */
+        /* [LIST MODE] Data Editor & DataFrame Grid Fix (Super Glue)             */
         /* --------------------------------------------------------------------- */
-        /* 공통 컨테이너 스타일 강화 */
+        /* 공통 컨테이너 스타일 강화 (유격 박멸) */
         div[data-testid="stDataEditor"], div[data-testid="stDataFrame"] {
             border: 1px solid #e0e0e0; 
             border-radius: 8px; 
@@ -149,8 +149,11 @@ def apply_custom_css():
             touch-action: pan-y !important; 
             -webkit-user-drag: none !important; 
             pointer-events: auto !important;
-            max-width: 100% !important; /* 부모 영역 탈출 방지 */
-            overflow-x: hidden; /* 불필요한 가로 스크롤 억제 */
+            width: 100% !important; /* 너비 강제 고정 */
+            max-width: 100% !important;
+            margin: 0 !important; /* 외부 여백 제거 */
+            padding: 0 !important; /* 내부 여백 제거 */
+            overflow-x: hidden; /* 가로 스크롤 억제 */
         }
 
         /* 내부 스크롤 영역 제어 */
@@ -159,26 +162,32 @@ def apply_custom_css():
             overscroll-behavior: contain !important;
             -webkit-overflow-scrolling: touch !important; 
             scrollbar-width: thin;
+            width: 100% !important; /* 내부 너비도 꽉 차게 */
         }
 
         /* 테이블 헤더 및 셀 텍스트 고정 (드래그 방지 및 커서 고정) */
         div[data-testid="stDataEditor"] *, div[data-testid="stDataFrame"] * { 
             user-select: none !important; 
             -webkit-user-select: none !important;
-            -webkit-user-drag: none !important; /* 드래그 원천 차단 */
+            -webkit-user-drag: none !important; 
         }
 
-        /* 헤더 스타일 고정 (배경 묻힘 방지 & 열 이동 차단 시각화) */
+        /* 헤더 스타일 고정 (Header Lockdown - 열 이동 완전 차단) */
         div[data-testid="stDataEditor"] thead th, div[data-testid="stDataFrame"] thead th {
             z-index: 10 !important; /* 헤더 우선순위 확보 */
             background-color: #f8f9fa !important; /* 헤더 배경색 고정 */
             border-bottom: 2px solid #e0e0e0 !important;
-            cursor: default !important; /* 손가락 모양 방지 (이동 불가 암시) */
-            pointer-events: none !important; /* 헤더 클릭/드래그 이벤트 무시 */
+            cursor: default !important; /* 손가락 모양 방지 */
+            pointer-events: none !important; /* 헤더 클릭/드래그 이벤트 무시 (핵심) */
+            position: sticky !important; /* 스티키 고정 강화 */
+            top: 0 !important;
         }
         
-        /* 단, 정렬 버튼 등 내부 인터랙션이 필요할 경우 pointer-events를 세밀하게 조정해야 하나
-           여기서는 완벽한 고정을 위해 헤더 전체를 잠금 */
+        /* 테이블 내부 셀 정렬 및 여백 조정 */
+        div[data-testid="stDataEditor"] td, div[data-testid="stDataFrame"] td {
+            vertical-align: middle !important;
+            padding: 8px 4px !important;
+        }
 
         /* --------------------------------------------------------------------- */
         /* [UI ELEMENTS] Interactive Components                                  */
