@@ -1,6 +1,6 @@
 # list_renderer.py
-# 범공인 Pro v24 Enterprise - List Renderer Module (v24.99 Final Fixed Grid)
-# Feature: Fixed Grid Layout, Null-Safe Filtering, Active New Entry Button
+# 범공인 Pro v24 Enterprise - List Renderer Module (v24.99 Enhanced Card)
+# Feature: Enhanced Card Info, Fixed Grid Layout, Null-Safe Filtering
 
 import streamlit as st
 import pandas as pd
@@ -176,7 +176,7 @@ def show_main_list():
 
 def render_card_view(df_page, is_sale):
     """
-    카드 형태의 리스트 출력
+    카드 형태의 리스트 출력 (현업종/관리비 추가, 체크박스 동기화)
     """
     version = st.session_state.editor_key_version
     
@@ -193,15 +193,27 @@ def render_card_view(df_page, is_sale):
                 st.session_state.df_main.loc[st.session_state.df_main['IronID'] == iid, '선택'] = new_chk
                 st.rerun()
             
-            # 주소 중심 제목
+            # 주소 중심 제목 + 현업종 추가
+            cur_biz = row.get('매물특징', '')[:10] if pd.notna(row.get('매물특징')) else '-'
+            # 실제로는 '현업종' 컬럼이 있으면 그걸 쓰고, 없으면 매물특징 앞부분을 쓰거나 '-' 처리
+            # 여기서는 core_engine에서 '현업종'을 별도로 가져오지 않고 '매물특징'에 통합했거나
+            # new_item_renderer에서는 '현업종'을 입력받음.
+            # 데이터 로드 시 '현업종'이 별도 컬럼으로 존재한다면 그것을 사용.
+            # core_engine.py 설정을 보면 '매물특징'으로 통합된 키워드 중에 '현업종'은 없음.
+            # 따라서 '현업종' 컬럼이 존재한다면 사용.
+            
+            biz_info = f"({row.get('현업종', '-')})" if '현업종' in row else ""
+            
             addr_info = f"**{row.get('지역_구')} {row.get('지역_동')} {row.get('번지')}**"
-            type_info = f"[{row.get('구분')}]"
+            type_info = f"[{row.get('구분')}] {biz_info}"
             info = f"{addr_info} {type_info}\n"
             
             if is_sale:
+                # 매매: 매매가 / 수익률 표시
                 info += f"💰 매매 {int(row.get('매매가',0)):,} / 수익률 {row.get('수익률', 0)}%"
             else:
-                info += f"💰 보 {int(row.get('보증금',0)):,} / 월 {int(row.get('월차임',0)):,} / 권 {int(row.get('권리금',0)):,}"
+                # 임대: 보 / 월 / 관 / 권 (관리비 추가)
+                info += f"💰 보 {int(row.get('보증금',0)):,} / 월 {int(row.get('월차임',0)):,} / 관 {int(row.get('관리비',0)):,} / 권 {int(row.get('권리금',0)):,}"
                 
             info += f"\n📐 {row.get('층')}층 / {row.get('면적')}평"
             c2.markdown(info)
