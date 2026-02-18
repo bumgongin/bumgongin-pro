@@ -1,6 +1,6 @@
 # styles.py
-# 범공인 Pro v24 Enterprise - Style Definition Module (v24.99 Grid Fix)
-# Feature: Static Data Grid, Viewport Locking, Mobile Optimized
+# 범공인 Pro v24 Enterprise - Style Definition Module (v24.99 Final Static Grid)
+# Feature: Static Data Grid, Viewport Locking, Column Reorder Block
 
 import streamlit as st
 
@@ -139,7 +139,7 @@ def apply_custom_css():
         }
 
         /* --------------------------------------------------------------------- */
-        /* [LIST MODE] Data Editor & DataFrame Grid Fix                          */
+        /* [LIST MODE] Data Editor & DataFrame Grid Fix (Reorder Block)          */
         /* --------------------------------------------------------------------- */
         /* 공통 컨테이너 스타일 강화 */
         div[data-testid="stDataEditor"], div[data-testid="stDataFrame"] {
@@ -161,18 +161,24 @@ def apply_custom_css():
             scrollbar-width: thin;
         }
 
-        /* 테이블 헤더 및 셀 텍스트 고정 (드래그 방지) */
+        /* 테이블 헤더 및 셀 텍스트 고정 (드래그 방지 및 커서 고정) */
         div[data-testid="stDataEditor"] *, div[data-testid="stDataFrame"] * { 
             user-select: none !important; 
-            -webkit-user-select: none !important; 
+            -webkit-user-select: none !important;
+            -webkit-user-drag: none !important; /* 드래그 원천 차단 */
         }
 
-        /* 헤더 스타일 고정 (배경 묻힘 방지) */
+        /* 헤더 스타일 고정 (배경 묻힘 방지 & 열 이동 차단 시각화) */
         div[data-testid="stDataEditor"] thead th, div[data-testid="stDataFrame"] thead th {
             z-index: 10 !important; /* 헤더 우선순위 확보 */
             background-color: #f8f9fa !important; /* 헤더 배경색 고정 */
             border-bottom: 2px solid #e0e0e0 !important;
+            cursor: default !important; /* 손가락 모양 방지 (이동 불가 암시) */
+            pointer-events: none !important; /* 헤더 클릭/드래그 이벤트 무시 */
         }
+        
+        /* 단, 정렬 버튼 등 내부 인터랙션이 필요할 경우 pointer-events를 세밀하게 조정해야 하나
+           여기서는 완벽한 고정을 위해 헤더 전체를 잠금 */
 
         /* --------------------------------------------------------------------- */
         /* [UI ELEMENTS] Interactive Components                                  */
