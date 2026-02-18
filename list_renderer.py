@@ -1,5 +1,5 @@
 # list_renderer.py
-# 범공인 Pro v24 Enterprise - List Renderer Module (v24.99 Final Secure)
+# 범공인 Pro v24 Enterprise - List Renderer Module (v24.99 Null-Safe Patch)
 # Feature: Null-Safe Filtering, Active New Entry Button, Secure Logic
 
 import streamlit as st
@@ -22,7 +22,7 @@ def show_main_list():
         detail_renderer.render_detail_view(st.session_state.selected_item)
         return
 
-    # [B] 데이터 필터링 로직 (None 값 방어 로직 적용)
+    # [B] 데이터 필터링 로직 (Null-Safe 방어 로직 적용)
     df = st.session_state.df_main
     df_f = df.copy()
 
@@ -42,7 +42,7 @@ def show_main_list():
         mask = df_f.astype(str).apply(lambda x: x.str.contains(kw, case=False)).any(axis=1)
         df_f = df_f[mask]
 
-    # 3. 금액/면적/층수 정밀 필터 (None 체크 필수)
+    # 3. 금액/면적/층수 정밀 필터 (Null-Safe Check)
     is_sale = "매매" in st.session_state.current_sheet
     if is_sale:
         # 매매가
@@ -105,7 +105,7 @@ def show_main_list():
     # [C] 결과 집계 및 페이지 계산
     total_count = len(df_f)
     if total_count == 0:
-        # 신규 등록 버튼만 표시하고 종료
+        # 신규 등록 버튼만 표시하고 종료 (빈 결과 UX 개선)
         c_sel1, c_sel2, c_new, c_pg = st.columns([1, 1, 1.5, 2])
         if c_new.button("➕ 신규 매물 등록", use_container_width=True, key="new_empty"):
             st.session_state.selected_item = None
