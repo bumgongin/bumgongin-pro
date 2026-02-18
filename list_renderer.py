@@ -1,6 +1,6 @@
 # list_renderer.py
-# 범공인 Pro v24 Enterprise - List Renderer Module (v24.99 Final Fixed)
-# Feature: Fixed List Grid, Null-Safe Filtering, Active New Entry Button, Secure Logic
+# 범공인 Pro v24 Enterprise - List Renderer Module (v24.99 Final Fixed Grid)
+# Feature: Fixed Grid Layout, Null-Safe Filtering, Active New Entry Button
 
 import streamlit as st
 import pandas as pd
@@ -138,7 +138,7 @@ def show_main_list():
         st.session_state.editor_key_version += 1
         st.rerun()
 
-    # [수정됨] 신규 등록 버튼 활성화
+    # 신규 등록 버튼 활성화
     if c_new.button("➕ 신규 매물 등록", use_container_width=True):
         st.session_state.selected_item = None
         st.session_state.is_adding_new = True # 등록 모드 진입
@@ -176,7 +176,7 @@ def show_main_list():
 
 def render_card_view(df_page, is_sale):
     """
-    카드 형태의 리스트 출력 (건물명 제거, 수익률 표시, 체크박스 동기화)
+    카드 형태의 리스트 출력
     """
     version = st.session_state.editor_key_version
     
@@ -212,12 +212,12 @@ def render_card_view(df_page, is_sale):
 
 def render_list_view_editor(df_page):
     """
-    리스트 모드 (st.data_editor 활용 - 무적 설정 및 상세 이동)
+    리스트 모드 (st.data_editor 활용 - 그리드 고정 및 상세 이동)
     """
     df_editor = df_page.copy()
     df_editor.insert(0, "🔍", False)
     
-    # [수정됨] 너비 및 높이 고정 (화면 흔들림 방지)
+    # [핵심] 너비 및 높이 물리적 고정
     column_config = {
         "🔍": st.column_config.CheckboxColumn(width="small", label="상세보기"),
         "선택": st.column_config.CheckboxColumn(width="small"),
@@ -227,7 +227,7 @@ def render_list_view_editor(df_page):
     # 모든 데이터 컬럼 비활성화 (정렬/이동 차단)
     disabled_cols = [col for col in df_editor.columns if col not in ['선택', '🔍']]
 
-    # [수정됨] 높이 고정 (height=600)
+    # [핵심] 높이 고정 (height=600) -> 헤더 박제
     edited_df = st.data_editor(
         df_editor,
         column_config=column_config,
