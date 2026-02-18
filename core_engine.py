@@ -1,6 +1,6 @@
 # core_engine.py
-# 범공인 Pro v24 Enterprise - Core Data Engine Module (v24.97 New Entry)
-# Feature: Cache Purge, Unified Terminology, Precision Matching, Append New Row
+# 범공인 Pro v24 Enterprise - Core Data Engine Module (v24.99 Final Secure)
+# Feature: Session Protection, Cache Purge, Precision Matching, Append New Row
 
 import streamlit as st
 import pandas as pd
@@ -150,9 +150,13 @@ def initialize_search_state():
 def safe_reset():
     """
     필터 관련 세션 상태를 초기화하고 캐시를 파괴합니다.
+    [수정됨] auth_status를 보호하여 로그아웃 되는 것을 방지합니다.
     """
+    # 보호할 시스템 변수 목록 (로그인 상태 포함)
+    protected_keys = ['current_sheet', 'editor_key_version', 'view_mode', 'page_num', 'auth_status']
+    
     for key in list(st.session_state.keys()):
-        if key not in ['current_sheet', 'editor_key_version', 'view_mode', 'page_num']:
+        if key not in protected_keys:
             del st.session_state[key]
     
     st.session_state.editor_key_version += 1
