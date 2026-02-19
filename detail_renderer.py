@@ -1,6 +1,6 @@
 # detail_renderer.py
-# 범공인 Pro v24 Enterprise - Detail View Engine (v24.99 Final Fixed)
-# Feature: Fixed Table Height, Real-time Memory Injection, Single Column Layout, Naver Map Base
+# 범공인 Pro v24 Enterprise - Detail View Engine (v24.99 Briefing Master)
+# Feature: 1-Click Copy, Advanced Briefing Text, Fixed Table, Live Sync
 
 import streamlit as st
 import pandas as pd
@@ -17,11 +17,9 @@ def render_detail_view(item):
     # [A] 상단 네비게이션 및 데이터 정제
     if st.button("◀ 목록으로 돌아가기"):
         st.session_state.selected_item = None
-        # 페이지 번호(page_num)는 유지하여 원래 위치로 복귀
         st.rerun()
 
     # 데이터 정제 (NaN -> 공백)
-    # 주의: item은 딕셔너리 형태여야 함
     item = {k: (str(v).replace('nan', '') if pd.notna(v) else '') for k, v in item.items()}
     current_sheet = st.session_state.current_sheet
     is_sale_mode = "매매" in current_sheet
@@ -66,28 +64,24 @@ def render_detail_view(item):
             st.divider()
             if st.button("📊 상권 요약 분석 보기 (300m 반경)", use_container_width=True):
                 with st.spinner("주변 시설 및 상권을 분석 중입니다..."):
-                    # 인프라 엔진 호출
                     infra_data = infra_engine.get_commercial_analysis(lat, lng)
                     if infra_data:
                         # 1. 지하철 정보
                         sub = infra_data.get('subway', {})
                         if sub.get('station') and sub['station'] != "정보 없음":
-                             # 도보 거리 산식 보수적 적용 (네이버 지도 기준)
                              w_min = int(round(sub.get('walk', 0)))
                              if w_min == 0: w_min = 1
                              st.success(f"🚇 **{sub['station']}** ({sub.get('line','')}) : 도보 약 {w_min}분 ({int(sub.get('dist', 0))}m)")
-                             # 브리핑용 데이터 세션 저장
                              st.session_state.last_subway_info = f" ({sub['station']} 도보 {w_min}분)"
                         else:
                              st.session_state.last_subway_info = ""
 
-                        # 2. 분석 테이블 출력 (2열 배치)
+                        # 2. 분석 테이블 출력 (높이 300 고정)
                         tab_fac, tab_anchor = st.tabs(["편의 시설", "앵커 브랜드"])
                         
                         with tab_fac:
                             fac_df = infra_data.get('facilities')
                             if fac_df is not None and not fac_df.empty:
-                                # [수정됨] 높이 고정 (height=300)
                                 st.dataframe(fac_df, use_container_width=True, hide_index=True, height=300)
                             else:
                                 st.info("주변 300m 이내 주요 시설 데이터가 없습니다.")
@@ -95,7 +89,6 @@ def render_detail_view(item):
                         with tab_anchor:
                             anchor_df = infra_data.get('anchors')
                             if anchor_df is not None and not anchor_df.empty:
-                                # [수정됨] 높이 고정 (height=300)
                                 st.dataframe(anchor_df, use_container_width=True, hide_index=True, height=300)
                             else:
                                 st.info("주변 1km 이내 주요 브랜드가 없습니다.")
@@ -108,25 +101,23 @@ def render_detail_view(item):
     with col_right:
         t1, t2, t3, t4 = st.tabs(["📝 기본/주소", "📑 시설/내용", "📁 기타 정보", "💬 브리핑"])
 
-        # [TAB 1] 기본 정보 (1열 배치 - 모바일 최적화)
+        # [TAB 1] 기본 정보 (1열 배치)
         with t1:
             with st.form("form_basic"):
                 updates_basic = {}
                 
                 if is_sale_mode:
-                    # 매매 필드 (13개 - 1열 순차 배치)
                     fields_sale = ['구분', '지역_구', '지역_동', '번지', '해당층', '호실', 
                                    '매매가', '대지면적', '건축면적', '연면적', '전용면적', '수익률', '연락처']
                     for col in fields_sale:
                         updates_basic[col] = st.text_input(col, value=item.get(col, ''))
                 else:
-                    # 임대 필드 (12개 - 1열 순차 배치)
                     fields_rent = ['구분', '지역_구', '지역_동', '번지', '층', '호실', 
                                    '보증금', '월차임', '관리비', '권리금', '면적', '연락처']
                     for col in fields_rent:
                         updates_basic[col] = st.text_input(col, value=item.get(col, ''))
 
-                # 연락처 특수 기능 (전화/문자)
+                # 연락처 특수 기능
                 contact_val = updates_basic.get('연락처', '')
                 if contact_val:
                     clean_num = re.sub(r'[^0-9]', '', contact_val)
@@ -139,32 +130,26 @@ def render_detail_view(item):
 
                 st.write("")
                 if st.form_submit_button("💾 기본정보 저장", use_container_width=True):
-                    # 1. 서버 저장
                     item.update(updates_basic)
                     success, msg = engine.update_single_row(item, current_sheet)
-                    # 2. 결과 처리 및 메모리 주입
                     handle_save_result(success, msg, updates_basic)
 
-        # [TAB 2] 시설/내용 수정 (1열 배치 - 모바일 최적화)
+        # [TAB 2] 시설/내용 수정
         with t2:
             with st.form("form_facility"):
                 updates_fac = {}
                 
                 if is_sale_mode:
-                    # 매매 시설 필드 (8개 - 1열 순차 배치)
                     fields_fac_sale = ['주용도', '기보증금', '기월세', '관리비', '주차', 'EV', '현업종']
                     for col in fields_fac_sale:
                         updates_fac[col] = st.text_input(col, value=item.get(col, ''))
-                    
                     updates_fac['특이사항'] = st.text_area("특이사항 (내부용)", value=item.get('특이사항', ''), height=100)
                 else:
-                    # 임대 시설 필드 (7개 - 1열 순차 배치)
                     fields_fac_rent = ['현업종', '주차', '화장실', 'E/V', '층고']
                     for col in fields_fac_rent:
                         updates_fac[col] = st.text_input(col, value=item.get(col, ''))
                     
                     updates_fac['특이사항'] = st.text_area("특이사항 (내부용)", value=item.get('특이사항', ''), height=100)
-                    # 용어 통일: '내용' -> '매물특징'
                     updates_fac['매물특징'] = st.text_area("매물특징 (브리핑용)", value=item.get('매물특징', ''), height=150)
 
                 if st.form_submit_button("💾 시설정보 저장", use_container_width=True):
@@ -172,7 +157,7 @@ def render_detail_view(item):
                     success, msg = engine.update_single_row(item, current_sheet)
                     handle_save_result(success, msg, updates_fac)
 
-        # [TAB 3] 기타 정보 (1열 배치 - 모바일 최적화)
+        # [TAB 3] 기타 정보
         with t3:
             with st.form("form_etc"):
                 updates_etc = {}
@@ -187,15 +172,14 @@ def render_detail_view(item):
                     success, msg = engine.update_single_row(item, current_sheet)
                     handle_save_result(success, msg, updates_etc)
 
-        # [TAB 4] 카톡 브리핑 생성 (자동 완성 - 실시간 반영)
+        # [TAB 4] 카톡 브리핑 생성 (원클릭 복사 탑재)
         with t4:
             st.markdown("##### 💬 카톡 브리핑 생성기")
             
-            # 인프라 정보 가져오기 (세션에 저장된 값 활용)
             sub_txt = st.session_state.get('last_subway_info', '')
             
-            # 브리핑 데이터 조립 (메모리 주입된 item 사용)
-            b_loc = f"{item.get('지역_구','')} {item.get('지역_동','')}{sub_txt}"
+            # [수정됨] 번지 필수 포함
+            b_loc = f"{item.get('지역_구','')} {item.get('지역_동','')} {item.get('번지','')}{sub_txt}"
             b_name = f"{item.get('건물명','')} ({item.get('층','')}층)"
             
             if is_sale_mode:
@@ -205,22 +189,50 @@ def render_detail_view(item):
             else:
                 b_price = f"보 {item.get('보증금','-')} / 월 {item.get('월차임','-')} / 관 {item.get('관리비','-')}"
                 if item.get('권리금') and item.get('권리금') != '0': b_price += f" / 권 {item.get('권리금')}"
-                b_spec = f"실 {item.get('면적','-')}평"
+                # [수정됨] '실' 대신 '약' 사용
+                b_spec = f"약 {item.get('면적','-')}평"
             
-            # 특이사항(내부용) 제외하고 매물특징(브리핑용)만 사용
             b_feat = item.get('매물특징', '') or "문의 요망"
             
-            briefing_text = f"""[매물 브리핑] (네이버 지도 도보 기준)
+            # [수정됨] 하단 서명 삭제
+            briefing_text = f"""[매물 브리핑] (네이버 지도 기준)
 📍 위치: {b_loc}
 🏢 건물: {b_name}
 📐 스펙: {b_spec}
 💰 금액: {b_price}
-📝 특징: {b_feat}
-
-📞 문의: 범공인중개사"""
+📝 특징: {b_feat}"""
             
-            st.text_area("복사용 텍스트", value=briefing_text, height=250)
-            st.caption("▲ 전체 선택 후 복사하여 사용하세요.")
+            # 텍스트 에어리어 표시
+            st.text_area("브리핑 텍스트", value=briefing_text, height=220, key="briefing_area")
+            
+            # [신규] 원클릭 복사 버튼 (HTML/JS)
+            # 스트림릿 컴포넌트를 활용하여 클라이언트 클립보드에 접근
+            copy_button_html = f"""
+            <script>
+            function copyToClipboard() {{
+                const textToCopy = `{briefing_text}`;
+                navigator.clipboard.writeText(textToCopy).then(() => {{
+                    const btn = document.getElementById("copyBtn");
+                    btn.innerHTML = "✅ 복사 완료!";
+                    btn.style.backgroundColor = "#4caf50";
+                    btn.style.color = "white";
+                    setTimeout(() => {{
+                        btn.innerHTML = "📋 브리핑 텍스트 복사하기";
+                        btn.style.backgroundColor = "#f0f2f6";
+                        btn.style.color = "black";
+                    }}, 2000);
+                }}).catch(err => {{
+                    console.error('Failed to copy: ', err);
+                }});
+            }}
+            </script>
+            <button id="copyBtn" onclick="copyToClipboard()" 
+                style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #ccc; 
+                       background-color: #f0f2f6; font-weight: bold; cursor: pointer; font-size: 14px;">
+                📋 브리핑 텍스트 복사하기
+            </button>
+            """
+            st.components.v1.html(copy_button_html, height=50)
 
     # [D] 하단 지능형 액션 바
     st.divider()
@@ -233,7 +245,7 @@ def render_smart_action_bar(item, sheet_name, is_sale):
     
     c1, c2, c3 = st.columns(3)
     
-    # CASE 1: 종료 시트 (복구/복사/삭제)
+    # CASE 1: 종료 시트
     if "(종료)" in sheet_name:
         if c1.button("♻️ 목록으로 복구", use_container_width=True):
             engine.execute_transaction("restore", target_df, sheet_name, base_name)
@@ -248,14 +260,13 @@ def render_smart_action_bar(item, sheet_name, is_sale):
             engine.execute_transaction("delete", target_df, sheet_name)
             reset_and_close()
             
-    # CASE 2: 브리핑 시트 (삭제만)
+    # CASE 2: 브리핑 시트
     elif "브리핑" in sheet_name:
-        # 중앙 정렬을 위해 c2 사용
         if c2.button("🗑️ 브리핑 삭제", type="primary", use_container_width=True):
             engine.execute_transaction("delete", target_df, sheet_name)
             reset_and_close()
             
-    # CASE 3: 일반 시트 (종료/복사/삭제)
+    # CASE 3: 일반 시트
     else:
         target_end = f"{base_name}(종료)"
         if c1.button("🚩 종료 처리 (이동)", use_container_width=True):
@@ -277,12 +288,10 @@ def handle_save_result(success, msg, updates):
     """
     if success:
         st.success("✅ 저장되었습니다!")
-        # [핵심] 현재 보고 있는 selected_item 객체에 수정된 값을 즉시 주입 (메모리 갱신)
         if st.session_state.selected_item is not None:
             st.session_state.selected_item.update(updates)
         
         time.sleep(0.5)
-        # 데이터 갱신을 위해 캐시 삭제
         if 'df_main' in st.session_state: 
             del st.session_state.df_main
         st.rerun()
