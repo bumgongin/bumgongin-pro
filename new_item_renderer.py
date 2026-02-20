@@ -1,6 +1,6 @@
 # new_item_renderer.py
-# 범공인 Pro v24 Enterprise - New Item Entry Module (v24.98 Precision Split)
-# Feature: Smart Facility Section, Mode-Specific Fields, Auto-Save
+# 범공인 Pro v24 Enterprise - New Item Entry Module (v24.99 Live Sync)
+# Feature: Smart Facility Section, Mode-Specific Fields, Auto-Save, Cache Purge
 
 import streamlit as st
 import pandas as pd
@@ -142,6 +142,12 @@ def render_new_item_form():
             if success:
                 st.success(f"✅ {msg}")
                 time.sleep(1.5)
+                
+                # [핵심] 성공 시 메모리에 있는 구버전 데이터(df_main)를 완전히 파괴하여
+                # app.py가 다시 실행될 때 무조건 구글 시트에서 최신 데이터를 긁어오도록 강제함.
+                if 'df_main' in st.session_state:
+                    del st.session_state.df_main
+                    
                 # 상태 초기화 및 목록 복귀
                 st.session_state.is_adding_new = False
                 st.session_state.selected_item = None
