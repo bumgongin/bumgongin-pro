@@ -1,6 +1,6 @@
 # detail_renderer.py
-# 범공인 Pro v24 Enterprise - Detail View Engine (v24.99 Briefing Master)
-# Feature: 1-Click Copy, Advanced Briefing Text, Fixed Table, Live Sync
+# 범공인 Pro v24 Enterprise - Detail View Engine (v24.99 Photo Linker)
+# Feature: Smart Photo Button, 1-Click Copy, Fixed Table, Live Sync
 
 import streamlit as st
 import pandas as pd
@@ -157,7 +157,7 @@ def render_detail_view(item):
                     success, msg = engine.update_single_row(item, current_sheet)
                     handle_save_result(success, msg, updates_fac)
 
-        # [TAB 3] 기타 정보
+        # [TAB 3] 기타 정보 (지능형 사진 버튼 탑재)
         with t3:
             with st.form("form_etc"):
                 updates_etc = {}
@@ -166,6 +166,10 @@ def render_detail_view(item):
                 for col in fields_etc:
                     val = item.get(col, '')
                     updates_etc[col] = st.text_input(col, value=val)
+                    
+                    # [핵심] 사진 URL이 있을 경우 바로가기 버튼 생성
+                    if col == '사진' and val.strip().startswith('http'):
+                        st.link_button("📸 이 매물 사진첩 열기 (새 창)", val.strip(), use_container_width=True)
                 
                 if st.form_submit_button("💾 기타정보 저장", use_container_width=True):
                     item.update(updates_etc)
@@ -178,7 +182,7 @@ def render_detail_view(item):
             
             sub_txt = st.session_state.get('last_subway_info', '')
             
-            # [수정됨] 번지 필수 포함
+            # 번지 필수 포함
             b_loc = f"{item.get('지역_구','')} {item.get('지역_동','')} {item.get('번지','')}{sub_txt}"
             b_name = f"{item.get('건물명','')} ({item.get('층','')}층)"
             
@@ -189,12 +193,12 @@ def render_detail_view(item):
             else:
                 b_price = f"보 {item.get('보증금','-')} / 월 {item.get('월차임','-')} / 관 {item.get('관리비','-')}"
                 if item.get('권리금') and item.get('권리금') != '0': b_price += f" / 권 {item.get('권리금')}"
-                # [수정됨] '실' 대신 '약' 사용
+                # '실' 대신 '약' 사용
                 b_spec = f"약 {item.get('면적','-')}평"
             
             b_feat = item.get('매물특징', '') or "문의 요망"
             
-            # [수정됨] 하단 서명 삭제
+            # 하단 서명 삭제
             briefing_text = f"""[매물 브리핑] (네이버 지도 기준)
 📍 위치: {b_loc}
 🏢 건물: {b_name}
@@ -205,8 +209,7 @@ def render_detail_view(item):
             # 텍스트 에어리어 표시
             st.text_area("브리핑 텍스트", value=briefing_text, height=220, key="briefing_area")
             
-            # [신규] 원클릭 복사 버튼 (HTML/JS)
-            # 스트림릿 컴포넌트를 활용하여 클라이언트 클립보드에 접근
+            # 원클릭 복사 버튼 (HTML/JS)
             copy_button_html = f"""
             <script>
             function copyToClipboard() {{
