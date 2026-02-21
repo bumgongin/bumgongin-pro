@@ -1,6 +1,6 @@
 # detail_renderer.py
-# 범공인 Pro v24 Enterprise - Detail View Engine (v24.99 Photo Linker)
-# Feature: Smart Photo Button, 1-Click Copy, Fixed Table, Live Sync
+# 범공인 Pro v24 Enterprise - Detail View Engine (v24.99 Multi-Linker)
+# Feature: Multi-Smart Link Buttons, 1-Click Copy, Fixed Table, Live Sync
 
 import streamlit as st
 import pandas as pd
@@ -95,7 +95,7 @@ def render_detail_view(item):
                     else:
                         st.error("분석 데이터를 가져오지 못했습니다.")
         else:
-            st.error("위치 정보를 찾을 수 없습니다. (주소 확인 필요)")
+            st.error("위치 정보를 찾을 수 বাতাসে 없습니다. (주소 확인 필요)")
 
     # --- RIGHT COLUMN: 4-TAB DETAIL FORM ---
     with col_right:
@@ -157,19 +157,20 @@ def render_detail_view(item):
                     success, msg = engine.update_single_row(item, current_sheet)
                     handle_save_result(success, msg, updates_fac)
 
-        # [TAB 3] 기타 정보 (지능형 사진 버튼 탑재)
+        # [TAB 3] 기타 정보 (멀티 스마트 링크 버튼 탑재)
         with t3:
             with st.form("form_etc"):
                 updates_etc = {}
                 fields_etc = ['접수경로', '접수일', '사진', '광고_포스', '광고_모두', '광고_블로그', '사용승인일', '건축물용도']
+                link_targets = ['사진', '광고_포스', '광고_모두', '광고_블로그']
                 
                 for col in fields_etc:
                     val = item.get(col, '')
                     updates_etc[col] = st.text_input(col, value=val)
                     
-                    # [핵심] 사진 URL이 있을 경우 바로가기 버튼 생성
-                    if col == '사진' and val.strip().startswith('http'):
-                        st.link_button("📸 이 매물 사진첩 열기 (새 창)", val.strip(), use_container_width=True)
+                    # [핵심] 지정된 필드에서 http로 시작하는 값이 있을 경우 바로가기 버튼 생성
+                    if col in link_targets and val.strip().startswith('http'):
+                        st.link_button(f"🚀 {col} 바로가기 (새 창)", val.strip(), use_container_width=True)
                 
                 if st.form_submit_button("💾 기타정보 저장", use_container_width=True):
                     item.update(updates_etc)
